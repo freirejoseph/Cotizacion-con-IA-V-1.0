@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SYSPRO Database Configuration",
+  "type": "object",
+  "required": ["database", "syspro", "costeo"],
+  "properties": {
+    "database": {
+      "type": "object",
+      "required": ["driver", "host", "port", "name"],
+      "properties": {
+        "driver": { "type": "string" },
+        "host": { "type": "string" },
+        "port": { "type": "integer", "minimum": 1 },
+        "name": { "type": "string" },
+        "user": { "type": "string" },
+        "password": { "type": "string" },
+        "trusted_connection": { "type": "boolean" },
+        "encrypt": { "type": "boolean" },
+        "trust_server_certificate": { "type": "boolean" },
+        "timeout_seconds": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "syspro": {
+      "type": "object",
+      "required": ["company", "schema"],
+      "properties": {
+        "company": { "type": "string" },
+        "schema": { "type": "string" },
+        "costing_by_warehouse": { "type": "boolean" },
+        "use_manufacturing_uom": { "type": "boolean" },
+        "include_non_current_components": { "type": "boolean" },
+        "warn_if_cost_implosion_incomplete": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "costeo": {
+      "type": "object",
+      "required": ["default_ebq", "decimal_places"],
+      "properties": {
+        "default_ebq": { "type": "number", "minimum": 0 },
+        "decimal_places": { "type": "integer", "minimum": 0 },
+        "currency": { "type": "string" },
+        "rounding_mode": {
+          "type": "string",
+          "enum": ["half_up", "half_even", "floor", "ceil"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "logging": {
+      "type": "object",
+      "properties": {
+        "level": { "type": "string" },
+        "file": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
+

@@ -1,0 +1,2 @@
+"""Cotizador IA core package."""
+

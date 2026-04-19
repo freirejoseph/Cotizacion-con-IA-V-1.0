@@ -1,0 +1,29 @@
+database:
+  driver: "ODBC Driver 17 for SQL Server"
+  host: "192.168.1.5"
+  port: 1433
+  name: "EncorePlasti1"
+  user: "sa5"
+  password: ""
+  trusted_connection: false
+  encrypt: false
+  trust_server_certificate: false
+  timeout_seconds: 0
+
+syspro:
+  company: ""
+  schema: ""
+  costing_by_warehouse: false
+  use_manufacturing_uom: true
+  include_non_current_components: false
+  warn_if_cost_implosion_incomplete: true
+
+costeo:
+  default_ebq: 1
+  decimal_places: 6
+  currency: ""
+  rounding_mode: "half_up"
+
+logging:
+  level: "INFO"
+  file: "outputs/logs/costeo.log"
