@@ -29,15 +29,15 @@ Antes de trabajar en codigo, notebook o consultas, la fuente de verdad es `docs/
 
 Documentos principales:
 
-- `docs/modelo_costeo_syspro.md`
-- `docs/mapa_lectura_syspro.md`
-- `docs/tablas_syspro_en_uso.md`
+- `docs/05_modelo_costeo_syspro.md`
+- `docs/06_mapa_lectura_syspro.md`
+- `docs/07_tablas_syspro_en_uso.md`
 - `docs/Script SQL/SYSPRO61.SQL`
 - `docs/Script SQL/SYSPRO61SP1.SQL`
 - `docs/Script SQL/EncorePlasti1 Script SQL.sql`
 - `docs/Documentacion sobre Costeo.pdf`
 - `docs/Tablas de SYSPRO ERP.pdf` como apoyo visual
-- `docs/flujo_costeo_whatif_syspro.md`
+- `docs/08_flujo_costeo_whatif_syspro.md`
 
 Regla de trabajo:
 
@@ -190,7 +190,7 @@ En `notebooks/` se mantiene tambien un indice de ejecucion con los comandos para
 - usar nombres reales de SQL cuando existan
 - evitar inventar tablas o campos
 - si hay duda, validar contra `docs/Script SQL/SYSPRO61.SQL` y `docs/Script SQL/SYSPRO61SP1.SQL`
-- si una tabla cambia, actualizar primero `tablas_syspro_en_uso.md`
+- si una tabla cambia, actualizar primero `07_tablas_syspro_en_uso.md`
 
 ### 5.3 Criterios de calculo
 
@@ -268,8 +268,8 @@ El flujo que seguimos para validar la simulacion es:
 
 ## 8. Flujo de uso recomendado
 
-1. leer `docs/modelo_costeo_syspro.md`
-2. revisar `docs/tablas_syspro_en_uso.md`
+1. leer `docs/05_modelo_costeo_syspro.md`
+2. revisar `docs/07_tablas_syspro_en_uso.md`
 3. ejecutar `scripts/test_syspro_connection.py`
 4. abrir `notebooks/01_validacion_syspromodel_costeo.ipynb`
 5. validar conexion a `EncorePlasti1`

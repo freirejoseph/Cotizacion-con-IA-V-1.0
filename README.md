@@ -1,122 +1,77 @@
 # Cotizador con IA V 1
 
-## Version 1.0
+Este repositorio contiene el motor de costeo del proyecto, orientado a reconstruir costos reales de SYSPRO y servir como base para cotizacion, validacion y futuros escenarios editables.
 
-Este repositorio contiene la primera version funcional del motor de costeo para cotizacion basado en la logica real de SYSPRO.
+## Que hace
 
-El objetivo de esta version es:
+- lee un `ParentPart` o `StockCode` real desde SYSPRO
+- reconstruye costos de materiales y operaciones
+- reproduce la logica observada del reporte `What-if`
+- genera reportes planos y jerarquicos para validacion
+- deja la base lista para evolucionar hacia `Estimaciones`
 
-- leer un `ParentPart` o `StockCode` real desde SYSPRO
-- reconstruir su costo usando maestro de inventario, BOM, operaciones y centros de trabajo
-- reproducir el comportamiento del costeo `What-if`
-- mostrar reportes planos y jerarquicos para validacion y analisis
-- dejar una base estable para evolucionar hacia escenarios editables de cotizacion
+## Estructura activa del repositorio
 
-## Alcance De La Version 1.0
+- `src/cotizador_ia/`: motor de costeo y configuracion
+- `connectors/`: acceso a SQL Server
+- `scripts/`: formulario, pruebas de conexion y generacion de reportes
+- `docs/`: documentacion funcional, tecnica y de transferencia de conocimiento
+- `notebooks/`: exploracion y validacion puntual
+- `outputs/`: reportes generados y salidas operativas
+- `tests/`: espacio reservado para pruebas automatizadas
 
-La version `1.0` ya permite:
+## Como ejecutar
 
-- conexion a SQL Server sobre la base `EncorePlasti1`
-- lectura de `InvMaster`, `InvWarehouse`, `InvWhatIfCost`, `BomStructure`, `BomOperations` y `BomWorkCentre`
-- calculo de cantidades efectivas con `EBQ`, `ScrapQuantity`, `ScrapPercentage` y cantidades fijas
-- calculo de materiales, labor, overhead fijo y overhead variable
-- acumulacion multinivel del costo en modo arbol
-- generacion de reportes estilo SYSPRO
-- ejecucion por formulario y por consola
-
-Esta version no busca reemplazar SYSPRO.
-Busca leer su estructura real, interpretar su logica de costeo y convertirla en una herramienta util para cotizacion y analisis.
-
-## Estructura Principal
-
-- `src/cotizador_ia/`
-  - motor de costeo y configuracion
-- `connectors/`
-  - acceso a SQL Server
-- `scripts/`
-  - formulario, pruebas de conexion y generacion de reportes
-- `docs/`
-  - documentacion funcional, tecnica y de referencia del proyecto
-- `notebooks/`
-  - exploracion, validacion y analisis puntual
-- `outputs/`
-  - salidas de reportes generados
-
-## Como Ejecutar
-
-### Probar conexion
+Probar conexion:
 
 ```powershell
 python scripts/test_syspro_connection.py
 ```
 
-### Generar reporte por consola
+Generar reporte plano:
 
 ```powershell
 python scripts/generate_bom_costing_report.py <PARENTPART_REAL> --batch-qty <LOTE>
 ```
 
-### Generar reporte jerarquico
+Generar reporte arbol:
 
 ```powershell
 python scripts/generate_bom_costing_report.py <PARENTPART_REAL> --batch-qty <LOTE> --tree
 ```
 
-### Abrir formulario
+Abrir formulario:
 
 ```powershell
 python scripts/bom_costing_form.py
 ```
 
-O:
+Alternativa en PowerShell:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\run_bom_costing_form.ps1
 ```
 
-## Caso De Regresion Documentado
-
-Caso de validacion conocido para comparar comportamiento:
+## Caso de regresion conocido
 
 - `ParentPart: 9320000432`
 - `Route: 0`
 - `BatchQty: 12500`
 
-Este caso sirve como referencia de regresion.
-El motor no esta limitado a ese codigo y debe funcionar para cualquier `StockCode` o `ParentPart` valido en las tablas base.
+## Documentacion
 
-## Documentacion Base
+La documentacion detallada vive en `docs/`.
 
-Punto de entrada tecnico:
+Punto de entrada recomendado:
 
 - [Indice de documentacion](docs/README.md)
-- [Modelo de costeo SYSPRO](docs/modelo_costeo_syspro.md)
-- [README tecnico de implementacion](docs/README_tecnico_implementacion_syspromodel.md)
-- [Flujo de costeo What-if](docs/flujo_costeo_whatif_syspro.md)
-- [Tablas SYSPRO en uso](docs/tablas_syspro_en_uso.md)
-- [Mapa de lectura SYSPRO](docs/mapa_lectura_syspro.md)
-- [Guia operativa del motor de costeo](docs/guia_operativa_motor_costeo.md)
+- [01. Onboarding](docs/01_onboarding_nuevo_desarrollo_motor_costeo.md)
+- [02. Conocimiento consolidado](docs/02_conocimiento_motor_costeo.md)
+- [03. Matriz de trazabilidad](docs/03_matriz_trazabilidad_motor_costeo.md)
+- [09. Guia operativa del motor](docs/09_guia_operativa_motor_costeo.md)
+- [10. Estimaciones v1.1](docs/10_estimaciones_v1_1_definicion_funcional.md)
 
-## Estado Tecnico De La 1.0
-
-La base actual ya valida:
-
-- lectura de item padre
-- explosion de BOM
-- costeo directo por `InvWhatIfCost`
-- costeo de operaciones desde `BomOperations` y `BomWorkCentre`
-- acumulacion ascendente desde hojas hasta el nodo padre
-- proteccion contra ciclos en el arbol
-
-La siguiente fase prevista es construir sobre esta base:
-
-- escenarios editables de componentes
-- escenarios editables de maquinas y centros de trabajo
-- variacion de cantidades y scrap
-- simulacion de costos y `EBQ`
-- comparativos base vs escenario
-
-## Regla De Trabajo
+## Regla de trabajo
 
 Antes de cambiar formulas, tablas o consultas:
 
@@ -126,7 +81,8 @@ Antes de cambiar formulas, tablas o consultas:
 4. validar con un `ParentPart` real
 5. documentar el cambio
 
-## Nota De Entorno
+## Nota de entorno
 
 La conexion real se apoya en `.env` en la raiz del proyecto.
+
 Ese archivo no debe publicarse con credenciales activas.

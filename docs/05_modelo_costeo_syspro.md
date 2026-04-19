@@ -8,10 +8,10 @@ La base documental del proyecto vive en `docs/` y se actualiza con estos insumos
 - `docs/Script SQL/SYSPRO61.SQL`
 - `docs/Script SQL/SYSPRO61SP1.SQL`
 - `docs/Script SQL/EncorePlasti1 Script SQL.sql`
-- `tablas_syspro_en_uso.md`
-- `mapa_lectura_syspro.md`
-- `README_tecnico_implementacion_syspromodel.md`
-- `flujo_costeo_whatif_syspro.md`
+- `07_tablas_syspro_en_uso.md`
+- `06_mapa_lectura_syspro.md`
+- `04_readme_tecnico_implementacion_syspromodel.md`
+- `08_flujo_costeo_whatif_syspro.md`
 - `Tablas de SYSPRO ERP.pdf` como apoyo visual
 - `Posible Recursividad.pdf` como apoyo de validacion
 
@@ -433,8 +433,8 @@ Implicacion:
 
 Si aparecen nuevas tablas, campos o reglas:
 
-1. Se actualiza primero `tablas_syspro_en_uso.md`.
-2. Se ajusta `mapa_lectura_syspro.md`.
+1. Se actualiza primero `07_tablas_syspro_en_uso.md`.
+2. Se ajusta `06_mapa_lectura_syspro.md`.
 3. Se revisa este documento para mantener el flujo del modelo.
 
 La idea es que `docs/` funcione como fuente viva del proyecto.

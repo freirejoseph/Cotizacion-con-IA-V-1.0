@@ -227,7 +227,7 @@ El flujo debe entregar:
 
 Este flujo se complementa con:
 
-- `modelo_costeo_syspro.md`
-- `mapa_lectura_syspro.md`
-- `tablas_syspro_en_uso.md`
-- `README_tecnico_implementacion_syspromodel.md`
+- `05_modelo_costeo_syspro.md`
+- `06_mapa_lectura_syspro.md`
+- `07_tablas_syspro_en_uso.md`
+- `04_readme_tecnico_implementacion_syspromodel.md`

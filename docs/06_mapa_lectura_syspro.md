@@ -9,7 +9,7 @@ La lista funcional se mantiene alineada con:
 - `docs/Script SQL/SYSPRO61SP1.SQL`
 - `docs/Script SQL/EncorePlasti1 Script SQL.sql`
 - `Tablas de SYSPRO ERP.pdf` como apoyo visual
-- `modelo_costeo_syspro.md`
+- `05_modelo_costeo_syspro.md`
 
 La lectura se enfoca en dos salidas:
 
