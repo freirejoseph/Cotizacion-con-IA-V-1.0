@@ -48,6 +48,7 @@ Incluye:
 - guia de onboarding para nuevos desarrolladores
 - limpieza de carpetas vacias no usadas en el desarrollo actual
 - actualizacion de enlaces internos tras el reordenamiento documental
+- documento de acuerdos operativos para registrar decisiones de colaboracion y flujo Git/GitHub
 
 Objetivo de esta version:
 

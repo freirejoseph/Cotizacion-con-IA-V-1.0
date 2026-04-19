@@ -26,6 +26,7 @@ No se debe duplicar documentacion equivalente en otros directorios del repositor
 - [08. Flujo de costeo What-if](08_flujo_costeo_whatif_syspro.md)
 - [09. Guia operativa del motor de costeo](09_guia_operativa_motor_costeo.md)
 - [10. Estimaciones v1.1 - Definicion funcional](10_estimaciones_v1_1_definicion_funcional.md)
+- [11. Acuerdos operativos de colaboracion](11_acuerdos_operativos_colaboracion.md)
 
 ## Ruta recomendada de lectura
 
@@ -51,6 +52,8 @@ Para adquirir el conocimiento del proyecto en secuencia, leer estos documentos e
    Sirve como manual practico para modificar, validar y extender el motor.
 10. [10. Estimaciones v1.1 - Definicion funcional](10_estimaciones_v1_1_definicion_funcional.md)
    Traduce el conocimiento del motor a la futura pantalla de escenarios editables `Estimaciones`.
+11. [11. Acuerdos operativos de colaboracion](11_acuerdos_operativos_colaboracion.md)
+   Registra decisiones de trabajo del proyecto para que no dependan de un chat previo.
 
 Si el objetivo es continuar codigo, despues de esta ruta conviene pasar a:
 
@@ -66,6 +69,10 @@ Si el objetivo es continuar codigo, despues de esta ruta conviene pasar a:
 ### Guias operativas del motor
 
 - [09. Guia operativa del motor de costeo](09_guia_operativa_motor_costeo.md)
+
+### Acuerdos de trabajo
+
+- [11. Acuerdos operativos de colaboracion](11_acuerdos_operativos_colaboracion.md)
 
 ### Referencias externas y soporte visual
 
