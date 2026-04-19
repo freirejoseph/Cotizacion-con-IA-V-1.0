@@ -1,47 +1,54 @@
 # Notebooks de ejecucion y validacion
 
-Esta carpeta concentra los puntos de entrada para ejecutar y validar el proyecto.
+Esta carpeta se reserva para exploracion, validacion y analisis puntual.
 
-## Flujo recomendado
+## Uso recomendado
 
-1. Abrir el formulario interactivo para pedir el `ParentPart`.
-2. Generar el reporte `What-if Costing Report` o el arbol por niveles.
-3. Comparar la salida contra SYSPRO.
-4. Documentar hallazgos en `docs/`.
+- pruebas exploratorias
+- validacion puntual
+- prototipos rapidos
+- analisis de resultados
 
-## Programas de ejecucion
+## Regla de organizacion
 
-### 1. Formulario interactivo
+Los programas productivos no deben vivir en `notebooks/`.
 
-Permite pedir el `ParentPart` y generar la salida plana o jerarquica.
+La distribucion correcta del repositorio es:
+
+- `src/`
+  - logica de negocio y motor
+- `connectors/`
+  - conectores y acceso a datos
+- `scripts/`
+  - programas ejecutables, formularios y lanzadores
+- `docs/`
+  - documentacion formal del proyecto
+- `notebooks/`
+  - experimentacion y apoyo temporal
+
+## Ejecucion operativa actual
+
+### Formulario interactivo
 
 ```powershell
 python scripts/bom_costing_form.py
 ```
 
-### 2. Generador de reporte por consola
-
-Genera el reporte directo para un `ParentPart` especifico.
+### Generador de reporte por consola
 
 ```powershell
 python scripts/generate_bom_costing_report.py 9320000432
 ```
 
-### 3. Generador jerarquico nivel por nivel
-
-Muestra el arbol de padres e hijos con acumulacion de costos.
+### Generador jerarquico
 
 ```powershell
 python scripts/generate_bom_costing_report.py 9320000432 --tree
 ```
 
-## Archivos de salida
+## Nota
 
-- `outputs/*_what_if_report.txt`
-- `outputs/*_tree_report.txt`
+Si un notebook termina consolidando una regla permanente del negocio:
 
-## Notas
-
-- La logica de costeo vive en `src/cotizador_ia/bom_costing.py`.
-- Esta carpeta solo agrupa el uso y la validacion.
-- No se deben duplicar aqui formulas o reglas de negocio.
+1. la regla se documenta en `docs/`
+2. la logica estable se mueve a `src/` o `scripts/`

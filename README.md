@@ -36,9 +36,9 @@ Busca leer su estructura real, interpretar su logica de costeo y convertirla en 
 - `scripts/`
   - formulario, pruebas de conexion y generacion de reportes
 - `docs/`
-  - documentacion tecnica del modelo y tablas reales
-- `skills/syspro-costing-engine/`
-  - skill operativo para explicar, mantener y extender el motor
+  - documentacion funcional, tecnica y de referencia del proyecto
+- `notebooks/`
+  - exploracion, validacion y analisis puntual
 - `outputs/`
   - salidas de reportes generados
 
@@ -89,15 +89,13 @@ El motor no esta limitado a ese codigo y debe funcionar para cualquier `StockCod
 
 Punto de entrada tecnico:
 
+- [Indice de documentacion](docs/README.md)
 - [Modelo de costeo SYSPRO](docs/modelo_costeo_syspro.md)
 - [README tecnico de implementacion](docs/README_tecnico_implementacion_syspromodel.md)
 - [Flujo de costeo What-if](docs/flujo_costeo_whatif_syspro.md)
 - [Tablas SYSPRO en uso](docs/tablas_syspro_en_uso.md)
 - [Mapa de lectura SYSPRO](docs/mapa_lectura_syspro.md)
-
-Documentacion operativa del motor:
-
-- [Skill de Motor de Costeo SYSPRO](skills/syspro-costing-engine/SKILL.md)
+- [Guia operativa del motor de costeo](docs/guia_operativa_motor_costeo.md)
 
 ## Estado Tecnico De La 1.0
 

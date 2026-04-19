@@ -1,30 +1,36 @@
----
-name: syspro-costing-engine
-description: Documentar, explicar, mantener y extender el motor de costeo de productos basado en SYSPRO usado en este repositorio. Usar este skill cuando Codex necesite trabajar sobre la logica de BOM, operaciones, centros de trabajo, manejo de EBQ, reglas de scrap, costos what-if, acumulacion multinivel, generacion de reportes de costeo o preparacion de escenarios de cotizacion.
----
-
-# Skill de Motor de Costeo SYSPRO
+# Guia operativa del motor de costeo
 
 ## Objetivo
 
-Usar este skill para trabajar con seguridad sobre el motor de costeo implementado en `src/cotizador_ia/bom_costing.py`, el conector SQL en `connectors/syspro_sqlserver.py` y los puntos de ejecucion ubicados en `scripts/`.
+Esta guia concentra las reglas operativas para entender, mantener y extender el motor de costeo del proyecto.
 
-## Inicio Rapido
+Su funcion es reemplazar la documentacion equivalente que antes estaba distribuida en la carpeta `skills/`.
 
-Para cualquier cambio, analisis o explicacion, seguir este orden:
+## Archivos principales del motor
 
-1. Leer los archivos actuales del motor:
+- `src/cotizador_ia/bom_costing.py`
+- `src/cotizador_ia/settings.py`
+- `connectors/syspro_sqlserver.py`
+- `scripts/bom_costing_form.py`
+- `scripts/generate_bom_costing_report.py`
+- `scripts/test_syspro_connection.py`
+
+## Flujo base de trabajo
+
+Para cualquier cambio, analisis o explicacion del motor, seguir este orden:
+
+1. Leer el motor actual:
    - `src/cotizador_ia/bom_costing.py`
    - `src/cotizador_ia/settings.py`
    - `connectors/syspro_sqlserver.py`
    - `scripts/bom_costing_form.py`
    - `scripts/generate_bom_costing_report.py`
-2. Confirmar si el cambio solicitado afecta:
+2. Confirmar si el cambio afecta:
    - lectura de datos maestros
    - logica de cantidades BOM
    - costeo de operaciones
    - expansion del arbol
-   - formato final del reporte
+   - formato de salida
    - comportamiento de simulacion
 3. Mantener separadas estas capas:
    - datos fuente leidos desde SYSPRO
@@ -33,7 +39,7 @@ Para cualquier cambio, analisis o explicacion, seguir este orden:
 4. Validar con un `ParentPart` real cuando sea posible.
 5. Tratar cualquier `StockCode` o `ParentPart` como entrada valida del motor si existe en las tablas base requeridas.
 
-## Flujo Base De Trabajo
+## Flujo base del motor
 
 Al explicar o modificar el motor, razonar en esta secuencia:
 
@@ -51,7 +57,7 @@ Al explicar o modificar el motor, razonar en esta secuencia:
     - reporte arbol: total recursivo desde los hijos mas bajos hasta el padre
 11. Formatear la salida final en un layout estilo SYSPRO.
 
-## Reglas De Cuidado
+## Reglas de cuidado
 
 Aplicar siempre estas reglas:
 
@@ -66,7 +72,7 @@ Aplicar siempre estas reglas:
    - costo totalmente acumulado del nodo hijo en reporte arbol
 6. Si se agrega capacidad de escenarios editables, conservar intacta la lectura base desde SYSPRO y aplicar overrides por encima, no en reemplazo de la logica canonica.
 
-## Validacion Recomendada
+## Validacion recomendada
 
 Usar estas validaciones despues de cambios materiales:
 
@@ -75,7 +81,7 @@ Usar estas validaciones despues de cambios materiales:
 3. `python scripts/generate_bom_costing_report.py <PARENTPART_REAL> --batch-qty <LOTE>`
 4. `python scripts/bom_costing_form.py`
 
-Caso de regresion sugerido cuando se quiera comparar contra una prueba ya conocida:
+Caso de regresion sugerido:
 
 - `ParentPart 9320000432`
 - `Route 0`
@@ -91,7 +97,7 @@ Si los resultados no coinciden con lo esperado, revisar en este orden:
 6. recursion o repeticion de hijos
 7. formato final del reporte
 
-## Resumen Tecnico Del Motor
+## Resumen tecnico del motor
 
 El motor actual vive principalmente en:
 
@@ -131,9 +137,11 @@ Alcance funcional del motor:
 
 - debe funcionar para cualquier `StockCode` o `ParentPart`
 - no debe depender de codigos documentados de ejemplo
-- los codigos mencionados en este skill sirven solo como validacion, regresion o referencia de pruebas
+- los codigos mencionados en la documentacion sirven solo como validacion, regresion o referencia de pruebas
 
-Flujo multinivel del reporte arbol:
+## Logica multinivel
+
+Flujo conceptual del reporte arbol:
 
 ```text
 ParentPart
@@ -161,7 +169,9 @@ Caso recursivo:
 - el total del hijo se multiplica por la cantidad requerida en el padre
 - luego se suman las operaciones propias del padre
 
-Extension recomendada para escenarios futuros:
+## Extension recomendada para escenarios
+
+Para futuras versiones:
 
 - mantener una capa canonica que lea SYSPRO sin alterar datos
 - agregar una capa de overrides en memoria para:
@@ -172,8 +182,8 @@ Extension recomendada para escenarios futuros:
   - costos
   - `EBQ`
 
-Caso de validacion principal documentado:
+## Criterio documental
 
-- `ParentPart 9320000432`
-- `Route 0`
-- `BatchQty 12500`
+La documentacion operativa del motor debe mantenerse en `docs/`.
+
+No se debe volver a duplicar esta misma informacion en otra carpeta documental del repositorio.
