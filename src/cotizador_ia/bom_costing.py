@@ -148,6 +148,24 @@ def get_master(stock_code: str) -> Dict:
 
 
 @lru_cache(None)
+def get_product_class_description(product_class: str) -> str:
+    code = str(product_class or "").strip()
+    if not code:
+        return ""
+    rows = query(
+        f"""
+        SELECT DISTINCT
+               LTRIM(RTRIM(Description)) AS Description
+        FROM dbo.SalProductClass
+        WHERE LTRIM(RTRIM(ProductClass)) = '{code}';
+        """
+    )
+    if not rows:
+        return ""
+    return str(rows[0].get("Description", "") or "").strip()
+
+
+@lru_cache(None)
 def get_warehouse_cost(stock_code: str) -> Dict:
     master = get_master(stock_code)
     wh = str(master.get("WarehouseToUse", "") or "").strip()

@@ -10,6 +10,8 @@ Este repositorio contiene el motor de costeo del proyecto, orientado a reconstru
 - genera reportes planos y jerarquicos para validacion
 - incluye una primera estacion operativa `Estimaciones` con interfaz tipo SYSPRO
 - soporta escenarios editables en memoria para componentes y operaciones
+- soporta reglas masivas de simulacion por `ProductClass`
+- incluye ayuda integrada y salida imprimible del reporte jerarquico
 - permite empaquetar la herramienta como ejecutable Windows
 
 ## Estructura activa del repositorio
@@ -113,8 +115,17 @@ Incluye:
 - paneles de `Parent Information`, `Operaciones`, `Componentes` y resumen de costos
 - recosteo automatico al editar campos criticos del escenario
 - acciones `Agregar`, `Editar` y `Eliminar` sobre componentes y operaciones
+- accion `Actualizar` para aplicar cambios masivos por `ProductClass`
+- ayuda integrada con `F1`
+- impresion del reporte textual desde `Jerarquia`
 - formularios auxiliares que cargan descripcion desde maestro al ingresar:
   - `Work center` desde `BomWorkCentre`
+  - `ProductClass` desde `SalProductClass`
   - `N° parte` desde `InvMaster`
+
+Ademas:
+
+- el ejecutable puede resolver `.env` desde la carpeta del EXE, `configurations/`, el directorio actual o la raiz del proyecto
+- `scripts/build_estimaciones_exe.ps1` refresca automaticamente `Ejecutable/` para facilitar la entrega a usuarios finales
 
 La entrega operativa para usuarios finales se prepara en la carpeta `Ejecutable/`.

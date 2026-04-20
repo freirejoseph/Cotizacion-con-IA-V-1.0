@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import ctypes
+import os
 import re
+import subprocess
+import tempfile
 import tkinter as tk
 from pathlib import Path
 import sys
@@ -14,7 +18,15 @@ for path in (PROJECT_ROOT, SRC_PATH):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from cotizador_ia.bom_costing import calculate_stock_cost, calculate_tree_cost, format_report, format_tree_report, get_master, get_work_centre
+from cotizador_ia.bom_costing import (
+    calculate_stock_cost,
+    calculate_tree_cost,
+    format_report,
+    format_tree_report,
+    get_master,
+    get_product_class_description,
+    get_work_centre,
+)
 
 
 WIN_BG = "#d7e7fb"
@@ -62,12 +74,15 @@ class EstimacionesApp(tk.Tk):
         self.current_hierarchy_node: object | None = None
         self.scenario_components: list[dict[str, object]] = []
         self.scenario_operations: list[dict[str, object]] = []
+        self.mass_rules: list[dict[str, object]] = []
+        self.help_window: tk.Toplevel | None = None
         self._edit_widgets: dict[str, tk.Entry] = {}
         self._scenario_recalc_after_id: str | None = None
 
         self._build_style()
         self._build_menu()
         self._build_ui()
+        self.bind_all("<F1>", self._show_help_window)
         self.maintain_hierarchies_var.trace_add("write", self._on_hierarchy_toggle)
         self.after(150, lambda: self._request_initial_load(silent=True, user_message="Cargando estructura base..."))
 
@@ -127,7 +142,12 @@ class EstimacionesApp(tk.Tk):
         opciones = tk.Menu(menu_bar, tearoff=False)
         opciones.add_command(label="Estimar", command=self._on_estimate)
         opciones.add_command(label="Jerarquia", command=self._show_hierarchy_report)
+        opciones.add_command(label="Actualizar masivo", command=self._open_mass_update_dialog)
         menu_bar.add_cascade(label="Opciones", menu=opciones)
+
+        ayuda = tk.Menu(menu_bar, tearoff=False)
+        ayuda.add_command(label="Ayuda de Estimaciones\tF1", command=self._show_help_window)
+        menu_bar.add_cascade(label="Ayuda", menu=ayuda)
 
         self.config(menu=menu_bar)
 
@@ -147,7 +167,7 @@ class EstimacionesApp(tk.Tk):
         topbar.grid(row=0, column=0, sticky="ew")
         for col in (1, 3, 6):
             topbar.grid_columnconfigure(col, weight=0)
-        topbar.grid_columnconfigure(8, weight=1)
+        topbar.grid_columnconfigure(9, weight=1)
 
         tk.Label(topbar, text="Código padre:", bg=BAR_BG, fg=TEXT_DARK, font=("Segoe UI", 8)).grid(
             row=0, column=0, padx=(8, 4), pady=6, sticky="w"
@@ -181,14 +201,21 @@ class EstimacionesApp(tk.Tk):
         self.hierarchy_button = ttk.Button(topbar, text="Jerarquía", style="Topbar.TButton", command=self._show_hierarchy_report)
         self.hierarchy_button.grid(row=0, column=6, padx=(0, 4))
         self.estimate_button = ttk.Button(topbar, text="Estimar", style="Topbar.TButton", command=self._on_estimate)
-        self.estimate_button.grid(row=0, column=7, padx=(12, 8))
+        self.estimate_button.grid(row=0, column=7, padx=(12, 4))
+        self.mass_update_button = ttk.Button(
+            topbar,
+            text="Actualizar",
+            style="Topbar.TButton",
+            command=self._open_mass_update_dialog,
+        )
+        self.mass_update_button.grid(row=0, column=8, padx=(0, 8))
         tk.Label(
             topbar,
             text="Campos amarillos = editables",
             bg=BAR_BG,
             fg="#40628d",
             font=("Segoe UI", 8, "italic"),
-        ).grid(row=0, column=8, sticky="e", padx=(8, 10))
+        ).grid(row=0, column=9, sticky="e", padx=(8, 10))
 
     def _build_info_strip(self, parent: ttk.Frame) -> None:
         strip = ttk.Frame(parent, style="App.TFrame")
@@ -516,6 +543,495 @@ class EstimacionesApp(tk.Tk):
     def _placeholder_action(self, action: str) -> None:
         self.status_var.set(f"Acción '{action}' reservada. En esta fase estamos afinando la apariencia tipo SYSPRO.")
 
+    def _help_sections(self) -> list[dict[str, object]]:
+        return [
+            {
+                "title": "Resumen",
+                "summary": "Estimaciones permite simular el costo What-if de un ParentPart no almacenable con la misma lógica ya validada contra el reporte textual. La pantalla visual muestra el detalle del costo, soporta recosteo y permite escenarios sobre materiales, operaciones y reglas masivas.",
+                "rows": [
+                    ("Código padre", "Parent part", "Parte no almacenable a estimar."),
+                    ("Ruta", "Route", "Ruta de fabricación usada por BOM y operaciones."),
+                    ("Maintain hierarchies", "Checkbox", "Amplía el detalle visual del árbol sin cambiar la lógica base del total."),
+                    ("Jerarquía", "Botón", "Abre el reporte textual del escenario actual."),
+                    ("Estimar", "Botón", "Recalcula el escenario con los valores visibles."),
+                    ("Actualizar", "Botón", "Aplica reglas masivas sobre componentes."),
+                ],
+            },
+            {
+                "title": "Función",
+                "summary": "El programa carga la estructura base desde SYSPRO, calcula el costo del ParentPart y presenta el detalle por paneles. Cada cambio editable afecta el escenario actual y recalcula el resumen sin alterar los maestros originales.",
+                "rows": [
+                    ("InvMaster", "Maestro", "Fuente de Description, Mass, StockUom, Ebq, WarehouseToUse y ProductClass."),
+                    ("BomStructure/BOM", "Estructura", "Fuente de componentes y cantidades."),
+                    ("BomOperations", "Operaciones", "Fuente de work center y tiempos base."),
+                    ("BomWorkCentre", "Tasas", "Fuente de descripción del centro y tasas por Rate ind."),
+                    ("What-if", "Lógica", "El costo oficial mostrado sigue la lógica validada contra el reporte de texto."),
+                ],
+            },
+            {
+                "title": "Resumen Superior",
+                "summary": "Este panel debe leerse como el resumen oficial del escenario actual.",
+                "rows": [
+                    ("Material", "Costo", "Materiales + cargos tratados como material."),
+                    ("Labor and set-up", "Costo", "Mano de obra y tiempos aplicados por operación."),
+                    ("Fixed Overhead", "Costo", "Costo fijo de operación."),
+                    ("Variable Overhead", "Costo", "Costo variable de operación."),
+                    ("Total cost", "Costo", "Suma total del escenario = Material + Labor + Fixed OH + Variable OH."),
+                ],
+            },
+            {
+                "title": "Parent Information",
+                "summary": "Código padre, Descripción, Unidad medida, Peso unitario, EBQ y Warehouse se cargan del maestro. Lote estimación es editable y permite simular otro tamaño de lote.",
+                "rows": [
+                    ("Código padre", "InvMaster.StockCode", "Parte a estimar."),
+                    ("Descripción", "InvMaster.Description", "Descripción del ParentPart."),
+                    ("Unidad medida", "InvMaster.StockUom", "UDM principal del ParentPart."),
+                    ("Peso unitario (Mass)", "InvMaster.Mass", "Peso unitario tomado del maestro."),
+                    ("Lote estimación", "Escenario", "Lote efectivo editable del cálculo."),
+                    ("EBQ", "InvMaster.Ebq", "Economic Batch Quantity del maestro."),
+                    ("Warehouse", "InvMaster.WarehouseToUse", "Almacén por defecto del maestro."),
+                ],
+            },
+            {
+                "title": "Estimación",
+                "summary": "El árbol presenta el ParentPart, sus componentes, subcomponentes y operaciones. Con Maintain hierarchies activado se expande el detalle visual de hijos y nietos.",
+                "rows": [
+                    ("Estructura", "Árbol", "Código y descripción del nodo."),
+                    ("Clasificación", "Tipo", "Nodo padre, componente, subcomponente u operación."),
+                    ("Costo", "Escenario", "Costo del nodo mostrado en el escenario actual."),
+                    ("Maintain hierarchies OFF", "Modo", "Vista equivalente al What-if de 1 nivel."),
+                    ("Maintain hierarchies ON", "Modo", "Vista expandida de hijos y nietos para análisis visual."),
+                ],
+            },
+            {
+                "title": "Operaciones",
+                "summary": "Aquí se modelan centros de trabajo, tiempos y cargos que impactan el costo. El programa sigue la lógica de tasas de SYSPRO sobre EBQ/lote efectivo.",
+                "rows": [
+                    ("Work center", "BomOperations.WorkCentre", "Centro de trabajo de la operación."),
+                    ("Description", "BomWorkCentre.Description", "Descripción del centro cargada desde maestro."),
+                    ("Rate ind", "BomOperations.WcRateInd", "Índice usado para elegir tasas del work center."),
+                    ("Run time", "BomOperations.IRunTime", "Tiempo por unidad."),
+                    ("Ciclo", "1 / Run time", "Unidades por hora; se muestra si Run time > 0."),
+                    ("Setup time", "BomOperations.ISetUpTime", "Tiempo de preparación del lote."),
+                    ("Startup time", "BomOperations.IStartupTime", "Tiempo de arranque del lote."),
+                    ("Teardown time", "BomOperations.ITeardownTime", "Tiempo de cierre del lote."),
+                    ("Sub-contracted", "BomOperations.SubOpUnitValue/SubWhatIfValue", "Cargo subcontratado."),
+                    ("Labor and set-up", "Cálculo", "Run*RunRate + Setup*SetUpRate/EBQ + Startup*StartupRate/EBQ + Teardown*TeardownRate/EBQ."),
+                    ("Fixed Overhead", "Cálculo", "UnitCapacity * FixOverRate / EBQ."),
+                    ("Variable Overhead", "Cálculo", "UnitCapacity * VarOverRate / EBQ."),
+                ],
+            },
+            {
+                "title": "Componentes",
+                "summary": "Aquí se modelan materiales comprados o fabricados. Puedes editar almacén, cantidad unitaria, categoría y costo unitario del escenario.",
+                "rows": [
+                    ("N° parte padre", "ParentPart", "Parte padre del nivel mostrado."),
+                    ("N° parte", "Component", "Código del componente."),
+                    ("Descripción de parte", "InvMaster.Description", "Texto del artículo."),
+                    ("Almacén", "Warehouse", "Warehouse del componente."),
+                    ("Cantidad unitaria", "Qty per / qty_neta", "Consumo unitario efectivo del escenario."),
+                    ("UDM", "InvMaster.StockUom", "Unidad de medida del componente."),
+                    ("Categoría", "Escenario", "Adquirido o fabricado."),
+                    ("Costo unitario", "Escenario", "Costo unitario editable o ajustado por regla."),
+                    ("Costo total", "Cálculo", "Cantidad unitaria * Costo unitario."),
+                    ("ProductClass", "InvMaster.ProductClass", "Clase usada para reglas masivas."),
+                ],
+            },
+            {
+                "title": "Jerarquía",
+                "summary": "Jerarquía muestra en pantalla el reporte textual del árbol o del What-if según el modo activo. Sirve para documentar el detalle del costo y revisar cómo se compone el ParentPart.",
+                "rows": [
+                    ("Prepared / Version", "Cabecera", "Datos del reporte textual."),
+                    ("Component", "Detalle", "Lista de componentes y costos."),
+                    ("Work center", "Detalle", "Lista de operaciones y tasas."),
+                    ("Total what-if cost", "Resultado", "Total oficial del escenario actual."),
+                    ("Imprimir", "Botón", "Abre el diálogo de impresora y envía el texto del reporte."),
+                ],
+            },
+            {
+                "title": "Estimar",
+                "summary": "Estimar recalcula el escenario completo con los valores visibles en pantalla. Después de estimar, el resumen superior, el árbol y las grillas deben quedar alineados.",
+                "rows": [
+                    ("Carga base", "Paso", "Lee maestro, BOM y operaciones."),
+                    ("Cálculo", "Paso", "Aplica la lógica What-if aprobada."),
+                    ("Resumen", "Salida", "Actualiza Material, Labor, Fixed OH, Variable OH y Total."),
+                    ("Árbol", "Salida", "Refresca estructura y costos visibles."),
+                    ("Grillas", "Salida", "Refresca operaciones y componentes."),
+                ],
+            },
+            {
+                "title": "Actualizar",
+                "summary": "Actualizar aplica reglas masivas sobre los componentes del escenario. En la versión actual trabaja con ProductClass y modifica el costo unitario por porcentaje.",
+                "rows": [
+                    ("Filtro", "Tipo", "Campo usado para buscar componentes."),
+                    ("ProductClass", "Código", "Clase a buscar dentro del escenario."),
+                    ("Descripción", "SalProductClass.Description", "Descripción del ProductClass."),
+                    ("Actualizar", "Campo", "Campo económico afectado por la regla."),
+                    ("Acción", "Operación", "Aumentar % o Disminuir %."),
+                    ("Valor %", "Porcentaje", "Factor porcentual a aplicar."),
+                    ("Coincidencias", "Vista previa", "Dónde aparece el ProductClass en Parent > Hijo."),
+                ],
+            },
+            {
+                "title": "Aplicación",
+                "summary": "Flujo recomendado de trabajo y prueba para el usuario cotizador.",
+                "rows": [
+                    ("1", "Cargar", "Cargar el ParentPart."),
+                    ("2", "Base", "Revisar el costo base."),
+                    ("3", "Jerarquía", "Activar jerarquía si necesitas detalle del árbol."),
+                    ("4", "Editar", "Editar componentes u operaciones o aplicar una regla masiva."),
+                    ("5", "Verificar", "Confirmar el nuevo total y el impacto por nodo."),
+                    ("6", "Documentar", "Usar Jerarquía e imprimir si necesitas evidencia."),
+                ],
+            },
+        ]
+
+    def _show_help_window(self, _event: object | None = None) -> str | None:
+        if self.help_window is not None and self.help_window.winfo_exists():
+            self.help_window.deiconify()
+            self.help_window.lift()
+            self.help_window.focus_force()
+            return "break"
+
+        window = tk.Toplevel(self)
+        window.title("Ayuda Estimaciones")
+        window.geometry("1260x760")
+        window.minsize(1040, 680)
+        window.configure(bg="#f7fbff")
+        window.transient(self)
+        self.help_window = window
+
+        def on_close() -> None:
+            self.help_window = None
+            window.destroy()
+
+        window.protocol("WM_DELETE_WINDOW", on_close)
+
+        banner = tk.Frame(window, bg="#0b9f1a", height=82)
+        banner.pack(fill="x")
+        banner.pack_propagate(False)
+
+        banner_inner = tk.Frame(banner, bg="#0b9f1a")
+        banner_inner.pack(fill="both", expand=True, padx=18, pady=10)
+        tk.Label(
+            banner_inner,
+            text="SYSPRO",
+            bg="#0b9f1a",
+            fg="white",
+            font=("Segoe UI", 27, "bold"),
+        ).pack(side="left")
+        tk.Label(
+            banner_inner,
+            text="Estimaciones",
+            bg="#0b9f1a",
+            fg="#eefee9",
+            font=("Segoe UI", 19, "bold"),
+        ).pack(side="left", padx=(18, 0))
+        tk.Label(
+            banner_inner,
+            text="Help",
+            bg="#c9f000",
+            fg="#2e5200",
+            font=("Segoe UI", 10, "bold"),
+            padx=12,
+            pady=4,
+        ).pack(side="right")
+
+        toolbar = tk.Frame(window, bg="#f1f4f8", relief="solid", bd=1)
+        toolbar.pack(fill="x")
+        for label in ("File", "View", "Topics", "Summary", "Printer Friendly Version"):
+            tk.Button(
+                toolbar,
+                text=label,
+                font=("Segoe UI", 8),
+                relief="flat",
+                bd=0,
+                bg="#f1f4f8",
+                activebackground="#dce8f8",
+                padx=10,
+                pady=5,
+                command=lambda value=label: self.status_var.set(f"Ayuda abierta: {value}"),
+            ).pack(side="left")
+
+        body = tk.Frame(window, bg="#f7fbff")
+        body.pack(fill="both", expand=True)
+        body.grid_columnconfigure(1, weight=1)
+        body.grid_rowconfigure(0, weight=1)
+
+        left = tk.Frame(body, bg="#edf7e7", relief="solid", bd=1, width=225)
+        left.grid(row=0, column=0, sticky="nsw")
+        left.grid_propagate(False)
+        left.grid_rowconfigure(3, weight=1)
+        left.grid_columnconfigure(0, weight=1)
+
+        tk.Label(left, text="Search", bg="#dceccf", fg="#274227", font=("Segoe UI", 9, "bold"), anchor="w", padx=8).grid(
+            row=0, column=0, sticky="ew"
+        )
+        tk.Entry(left, font=("Segoe UI", 8), relief="solid", bd=1).grid(row=1, column=0, sticky="ew", padx=8, pady=8)
+        tk.Label(left, text="Reference Guides", bg="#dceccf", fg="#274227", font=("Segoe UI", 9, "bold"), anchor="w", padx=8).grid(
+            row=2, column=0, sticky="ew"
+        )
+
+        nav_host = tk.Frame(left, bg="white", relief="solid", bd=1)
+        nav_host.grid(row=3, column=0, sticky="nsew", padx=8, pady=8)
+        nav_host.grid_rowconfigure(0, weight=1)
+        nav_host.grid_columnconfigure(0, weight=1)
+
+        section_list = tk.Listbox(
+            nav_host,
+            font=("Segoe UI", 8),
+            activestyle="none",
+            bd=0,
+            highlightthickness=0,
+            exportselection=False,
+        )
+        section_list.grid(row=0, column=0, sticky="nsew")
+
+        center = tk.Frame(body, bg="white", relief="solid", bd=1)
+        center.grid(row=0, column=1, sticky="nsew")
+        center.grid_columnconfigure(0, weight=1)
+        center.grid_rowconfigure(3, weight=1)
+
+        tk.Label(
+            center,
+            text="Quotations > Quotations Processing > Estimates",
+            bg="white",
+            fg="#5d7992",
+            font=("Segoe UI", 9),
+            anchor="w",
+            padx=14,
+            pady=10,
+        ).grid(row=0, column=0, sticky="ew")
+
+        title_var = tk.StringVar(value="")
+        tk.Label(
+            center,
+            textvariable=title_var,
+            bg="white",
+            fg="#111111",
+            font=("Segoe UI", 20, "bold"),
+            anchor="w",
+            padx=14,
+        ).grid(row=1, column=0, sticky="ew")
+
+        summary_box = tk.Text(center, wrap="word", font=("Segoe UI", 10), relief="flat", bd=0, height=7)
+        summary_box.grid(row=2, column=0, sticky="ew", padx=14, pady=(0, 10))
+        summary_box.configure(bg="white", fg="#1a1a1a", padx=4, pady=4)
+
+        details_host = tk.Frame(center, bg="white")
+        details_host.grid(row=3, column=0, sticky="nsew", padx=14, pady=(0, 14))
+        details_host.grid_rowconfigure(1, weight=1)
+        details_host.grid_columnconfigure(0, weight=1)
+
+        tk.Label(
+            details_host,
+            text="Estimates",
+            bg="white",
+            fg="#111111",
+            font=("Segoe UI", 13, "bold"),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew", pady=(0, 6))
+
+        details = ttk.Treeview(
+            details_host,
+            columns=("field", "value", "description"),
+            show="headings",
+            style="Syspro.Treeview",
+            height=18,
+        )
+        details.heading("field", text="Field")
+        details.heading("value", text="Value")
+        details.heading("description", text="Description")
+        details.column("field", width=180, anchor="w")
+        details.column("value", width=170, anchor="w")
+        details.column("description", width=680, anchor="w")
+        details.grid(row=1, column=0, sticky="nsew")
+
+        detail_scroll = ttk.Scrollbar(details_host, orient="vertical", command=details.yview)
+        detail_scroll.grid(row=1, column=1, sticky="ns")
+        details.configure(yscrollcommand=detail_scroll.set)
+
+        right = tk.Frame(body, bg="#f7fbff", width=255)
+        right.grid(row=0, column=2, sticky="nse")
+        right.grid_propagate(False)
+
+        task_box = tk.Frame(right, bg="#f9fff1", relief="solid", bd=1)
+        task_box.pack(fill="both", expand=True, padx=(10, 12), pady=20)
+        tk.Label(
+            task_box,
+            text="Tasks",
+            bg="#dceccf",
+            fg="#274227",
+            font=("Segoe UI", 10, "bold"),
+            anchor="w",
+            padx=8,
+            pady=6,
+        ).pack(fill="x")
+
+        for task in (
+            "Set preferences",
+            "Cargar base",
+            "Estimar escenario",
+            "Ver jerarquía",
+            "Agregar operación",
+            "Editar componente",
+            "Aplicar actualización masiva",
+            "Documentar impacto",
+        ):
+            tk.Label(
+                task_box,
+                text=f"›  {task}",
+                bg="#f9fff1",
+                fg="#223922",
+                font=("Segoe UI", 9),
+                anchor="w",
+                padx=10,
+                pady=2,
+            ).pack(fill="x")
+
+        sections = self._help_sections()
+        for topic in sections:
+            section_list.insert("end", str(topic["title"]))
+
+        def render(index: int) -> None:
+            topic = sections[index]
+            title_var.set(str(topic["title"]))
+            summary_box.configure(state="normal")
+            summary_box.delete("1.0", "end")
+            summary_box.insert("1.0", str(topic["summary"]))
+            summary_box.configure(state="disabled")
+
+            for item in details.get_children():
+                details.delete(item)
+            for row_index, row in enumerate(topic.get("rows", []), start=1):
+                details.insert(
+                    "",
+                    "end",
+                    values=row,
+                    tags=("alt",) if row_index % 2 == 0 else ("base",),
+                )
+            details.tag_configure("base", background="#e3e3e3", foreground="#111111")
+            details.tag_configure("alt", background="#d3d3d3", foreground="#111111")
+
+        def on_select(_event: object | None = None) -> None:
+            selected = section_list.curselection()
+            if not selected:
+                return
+            render(int(selected[0]))
+
+        section_list.bind("<<ListboxSelect>>", on_select)
+        section_list.selection_set(0)
+        render(0)
+        section_list.focus_set()
+        return "break"
+
+    def _select_windows_printer(self) -> tuple[str, str, str] | None:
+        if os.name != "nt":
+            messagebox.showinfo("Imprimir", "La selección de impresora solo está implementada para Windows.")
+            return None
+
+        class PRINTDLG(ctypes.Structure):
+            _fields_ = [
+                ("lStructSize", ctypes.c_uint32),
+                ("hwndOwner", ctypes.c_void_p),
+                ("hDevMode", ctypes.c_void_p),
+                ("hDevNames", ctypes.c_void_p),
+                ("hDC", ctypes.c_void_p),
+                ("Flags", ctypes.c_uint32),
+                ("nFromPage", ctypes.c_ushort),
+                ("nToPage", ctypes.c_ushort),
+                ("nMinPage", ctypes.c_ushort),
+                ("nMaxPage", ctypes.c_ushort),
+                ("nCopies", ctypes.c_ushort),
+                ("hInstance", ctypes.c_void_p),
+                ("lCustData", ctypes.c_void_p),
+                ("lpfnPrintHook", ctypes.c_void_p),
+                ("lpfnSetupHook", ctypes.c_void_p),
+                ("lpPrintTemplateName", ctypes.c_wchar_p),
+                ("lpSetupTemplateName", ctypes.c_wchar_p),
+                ("hPrintTemplate", ctypes.c_void_p),
+                ("hSetupTemplate", ctypes.c_void_p),
+            ]
+
+        class DEVNAMES(ctypes.Structure):
+            _fields_ = [
+                ("wDriverOffset", ctypes.c_ushort),
+                ("wDeviceOffset", ctypes.c_ushort),
+                ("wOutputOffset", ctypes.c_ushort),
+                ("wDefault", ctypes.c_ushort),
+            ]
+
+        PD_RETURNDC = 0x00000100
+        PD_USEDEVMODECOPIESANDCOLLATE = 0x00040000
+
+        print_dlg = PRINTDLG()
+        print_dlg.lStructSize = ctypes.sizeof(PRINTDLG)
+        print_dlg.hwndOwner = self.winfo_id()
+        print_dlg.Flags = PD_RETURNDC | PD_USEDEVMODECOPIESANDCOLLATE
+
+        print_dlg_w = ctypes.windll.comdlg32.PrintDlgW
+        print_dlg_w.argtypes = [ctypes.POINTER(PRINTDLG)]
+        print_dlg_w.restype = ctypes.c_bool
+
+        success = print_dlg_w(ctypes.byref(print_dlg))
+        if not success:
+            error_code = ctypes.windll.comdlg32.CommDlgExtendedError()
+            if error_code:
+                messagebox.showerror("Imprimir", f"No fue posible abrir el diálogo de impresión ({error_code}).")
+            return None
+
+        try:
+            if not print_dlg.hDevNames:
+                return None
+
+            locked = ctypes.windll.kernel32.GlobalLock(print_dlg.hDevNames)
+            if not locked:
+                return None
+            try:
+                devnames = DEVNAMES.from_address(locked)
+                wchar_size = ctypes.sizeof(ctypes.c_wchar)
+                driver = ctypes.wstring_at(locked + devnames.wDriverOffset * wchar_size)
+                device = ctypes.wstring_at(locked + devnames.wDeviceOffset * wchar_size)
+                output = ctypes.wstring_at(locked + devnames.wOutputOffset * wchar_size)
+            finally:
+                ctypes.windll.kernel32.GlobalUnlock(print_dlg.hDevNames)
+        finally:
+            if print_dlg.hDC:
+                ctypes.windll.gdi32.DeleteDC(print_dlg.hDC)
+            if print_dlg.hDevMode:
+                ctypes.windll.kernel32.GlobalFree(print_dlg.hDevMode)
+            if print_dlg.hDevNames:
+                ctypes.windll.kernel32.GlobalFree(print_dlg.hDevNames)
+
+        return device, driver, output
+
+    def _print_text_report(self, report: str) -> None:
+        printer = self._select_windows_printer()
+        if printer is None:
+            return
+
+        printer_name, driver_name, output_name = printer
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile("w", delete=False, suffix=".txt", encoding="utf-8-sig") as handle:
+                handle.write(report)
+                temp_path = handle.name
+
+            completed = subprocess.run(
+                ["notepad.exe", "/pt", temp_path, printer_name, driver_name, output_name],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if completed.returncode != 0:
+                raise RuntimeError((completed.stderr or completed.stdout or "No fue posible imprimir el reporte.").strip())
+            self.status_var.set(f"Reporte enviado a impresión en {printer_name}.")
+        except Exception as exc:
+            messagebox.showerror("Imprimir", str(exc))
+        finally:
+            if temp_path:
+                self.after(20000, lambda path=temp_path: Path(path).unlink(missing_ok=True))
+
     def _set_loading_state(self, loading: bool) -> None:
         state = "disabled" if loading else "normal"
         self.hierarchy_button.configure(state=state)
@@ -710,6 +1226,13 @@ class EstimacionesApp(tk.Tk):
             node_counter += 1
             return f"{prefix}-{node_counter}"
 
+        def hierarchy_total(comp: object) -> float:
+            stock_code = str(getattr(comp, "stock_code", "") or "").strip()
+            base_total = float(getattr(comp, "total", 0.0) or 0.0)
+            product_class = str(get_master(stock_code).get("ProductClass", "") or "").strip()
+            factor = self._rule_factor_for_product_class(product_class)
+            return self._r5(base_total * factor)
+
         def insert_children(parent_id: str, current_node: object) -> None:
             for comp in getattr(current_node, "components", []):
                 comp_text = f"{getattr(comp, 'stock_code', '')} {getattr(comp, 'description', '')}".strip()
@@ -722,7 +1245,7 @@ class EstimacionesApp(tk.Tk):
                     values=(
                         self.uom_var.get(),
                         "Subcomponente" if getattr(comp, "node", None) else "Componente",
-                        self._fmt_num(getattr(comp, 'total', 0.0), 5, blank_zero=False),
+                        self._fmt_num(hierarchy_total(comp), 5, blank_zero=False),
                     ),
                 )
                 child_node = getattr(comp, "node", None)
@@ -877,6 +1400,7 @@ class EstimacionesApp(tk.Tk):
     def _reset_scenario(self, components: list[object], operations: list[object]) -> None:
         self.scenario_components = []
         self.scenario_operations = []
+        self.mass_rules = []
 
         for index, comp in enumerate(components, start=1):
             qty = float(getattr(comp, "qty_neta", 0.0) or 0.0)
@@ -904,12 +1428,17 @@ class EstimacionesApp(tk.Tk):
                     "stock_code": str(getattr(comp, "stock_code", "") or ""),
                     "description": str(getattr(comp, "description", "") or ""),
                     "warehouse": str(getattr(comp, "warehouse", "") or ""),
+                    "product_class": str(
+                        get_master(str(getattr(comp, "stock_code", "") or "")).get("ProductClass", "") or ""
+                    ).strip(),
                     "qty_required": qty,
                     "qty_neta": qty,
                     "uom": self.uom_var.get(),
                     "category": "Adquirido",
                     "unit_cost": 0.0 if abs(qty) < 0.0000005 else total / qty,
+                    "base_unit_cost": 0.0 if abs(qty) < 0.0000005 else total / qty,
                     "total": total,
+                    "base_total": total,
                     "material": material,
                     "labor": labor,
                     "fixed": fixed,
@@ -1310,6 +1839,325 @@ class EstimacionesApp(tk.Tk):
         window.wait_window()
         return values if result["ok"] else None
 
+    def _open_mass_update_dialog(self) -> None:
+        if not self.scenario_components:
+            messagebox.showinfo("Actualizar", "Primero carga un escenario para aplicar una regla masiva.")
+            return
+
+        window = tk.Toplevel(self)
+        window.title("Actualización masiva")
+        window.transient(self)
+        window.resizable(False, False)
+        window.configure(bg="#f4f8ff")
+
+        body = tk.Frame(window, bg="#f4f8ff", padx=16, pady=14)
+        body.pack(fill="both", expand=True)
+
+        target_var = tk.StringVar(value="Componentes")
+        field_var = tk.StringVar(value="ProductClass")
+        action_var = tk.StringVar(value="Aumentar %")
+        filter_value_var = tk.StringVar(value="")
+        pct_value_var = tk.StringVar(value="10")
+        class_desc_var = tk.StringVar(value="")
+        match_count_var = tk.StringVar(value="")
+        helper_var = tk.StringVar(
+            value="Ejemplo: ProductClass 101 con +10% actualiza el costo unitario de los componentes afectados."
+        )
+
+        rows = [
+            ("Aplicar sobre", target_var, False),
+            ("Filtro", field_var, False),
+            ("ProductClass", filter_value_var, True),
+            ("Actualizar", tk.StringVar(value="Costo unitario"), False),
+            ("Acción", action_var, True),
+            ("Valor %", pct_value_var, True),
+        ]
+
+        widgets: dict[str, tk.Widget] = {}
+        for row, (label, variable, editable) in enumerate(rows):
+            tk.Label(body, text=label, bg="#f4f8ff", fg=TEXT_DARK, font=("Segoe UI", 8)).grid(
+                row=row, column=0, sticky="w", padx=(0, 8), pady=3
+            )
+            if label == "Acción":
+                combo = ttk.Combobox(
+                    body,
+                    textvariable=action_var,
+                    values=["Aumentar %", "Disminuir %"],
+                    width=30,
+                    state="readonly",
+                )
+                combo.grid(row=row, column=1, sticky="ew", pady=3)
+                widgets["action"] = combo
+            else:
+                entry = tk.Entry(
+                    body,
+                    width=32,
+                    font=("Segoe UI", 8),
+                    relief="solid",
+                    bd=1,
+                    bg=FIELD_BG if editable else READONLY_BG,
+                )
+                entry.insert(0, variable.get())
+                if not editable:
+                    entry.configure(state="readonly", readonlybackground=READONLY_BG)
+                entry.grid(row=row, column=1, sticky="ew", pady=3)
+                widgets[label] = entry
+
+        desc_row = len(rows)
+        tk.Label(body, text="Descripción", bg="#f4f8ff", fg=TEXT_DARK, font=("Segoe UI", 8)).grid(
+            row=desc_row, column=0, sticky="w", padx=(0, 8), pady=3
+        )
+        tk.Label(
+            body,
+            textvariable=class_desc_var,
+            bg=READONLY_BG,
+            fg="#1e1e1e",
+            relief="solid",
+            bd=1,
+            font=("Segoe UI", 8),
+            anchor="w",
+            padx=6,
+            pady=2,
+        ).grid(row=desc_row, column=1, sticky="ew", pady=3)
+
+        tk.Label(
+            body,
+            textvariable=helper_var,
+            bg="#f4f8ff",
+            fg="#48617f",
+            font=("Segoe UI", 8, "italic"),
+            anchor="w",
+            justify="left",
+        ).grid(row=desc_row + 1, column=0, columnspan=2, sticky="ew", pady=(4, 8))
+
+        tk.Label(
+            body,
+            textvariable=match_count_var,
+            bg="#f4f8ff",
+            fg=TEXT_DARK,
+            font=("Segoe UI", 8, "bold"),
+            anchor="w",
+            justify="left",
+        ).grid(row=desc_row + 2, column=0, columnspan=2, sticky="ew", pady=(0, 4))
+
+        match_text = tk.Text(
+            body,
+            width=52,
+            height=7,
+            font=("Consolas", 8),
+            relief="solid",
+            bd=1,
+            bg=READONLY_BG,
+            wrap="word",
+        )
+        match_text.grid(row=desc_row + 3, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        match_text.configure(state="disabled")
+
+        body.grid_columnconfigure(1, weight=1)
+
+        def load_product_class(_event: object | None = None) -> None:
+            filter_widget = widgets.get("ProductClass")
+            code = filter_widget.get().strip() if isinstance(filter_widget, tk.Entry) else ""
+            if not code:
+                class_desc_var.set("")
+                match_count_var.set("")
+                match_text.configure(state="normal")
+                match_text.delete("1.0", "end")
+                match_text.configure(state="disabled")
+                helper_var.set("Ingresa un ProductClass y pulsa Enter.")
+                return
+            description = get_product_class_description(code)
+            matches = self._collect_product_class_matches(code)
+            if description:
+                class_desc_var.set(f"{code} - {description}")
+                helper_var.set("La regla se aplicará inmediatamente y recalculará el escenario al aceptar.")
+            else:
+                class_desc_var.set(code)
+                helper_var.set(f"No se encontró descripción para ProductClass {code}. Se aplicará el código ingresado.")
+            match_count_var.set(
+                f"Coincidencias encontradas: {len(matches)}"
+            )
+            match_text.configure(state="normal")
+            match_text.delete("1.0", "end")
+            if matches:
+                match_text.insert("1.0", "\n".join(matches))
+            else:
+                match_text.insert("1.0", "No se encontraron componentes con ese ProductClass en el escenario visible.")
+            match_text.configure(state="disabled")
+
+        filter_entry = widgets.get("ProductClass")
+        if isinstance(filter_entry, tk.Entry):
+            filter_entry.bind("<Return>", load_product_class)
+            filter_entry.bind("<FocusOut>", load_product_class)
+
+        def submit() -> None:
+            filter_widget = widgets.get("ProductClass")
+            pct_widget = widgets.get("Valor %")
+            filter_value = filter_widget.get().strip() if isinstance(filter_widget, tk.Entry) else ""
+            if not filter_value:
+                messagebox.showwarning("Actualizar", "Ingresa un ProductClass para filtrar.")
+                return
+            load_product_class()
+            try:
+                pct_raw = pct_widget.get().strip() if isinstance(pct_widget, tk.Entry) else ""
+                pct_value = self._parse_float_field(pct_raw, "Valor %")
+            except Exception as exc:
+                messagebox.showerror("Actualizar", str(exc))
+                return
+            if pct_value < 0:
+                messagebox.showwarning("Actualizar", "El porcentaje debe ser positivo.")
+                return
+
+            affected = self._apply_component_product_class_rule(
+                product_class=filter_value,
+                percent=pct_value,
+                increase=action_var.get() == "Aumentar %",
+            )
+            if affected == 0:
+                messagebox.showinfo(
+                    "Actualizar",
+                    f"No se encontraron componentes con ProductClass {filter_value}.",
+                )
+                return
+            window.destroy()
+
+        buttons = tk.Frame(body, bg="#f4f8ff")
+        buttons.grid(row=desc_row + 4, column=0, columnspan=2, sticky="e", pady=(8, 0))
+        ttk.Button(buttons, text="Aplicar", style="Slim.TButton", command=submit).pack(side="left", padx=(0, 6))
+        ttk.Button(buttons, text="Cancelar", style="Slim.TButton", command=window.destroy).pack(side="left")
+
+        editable_first = widgets.get("Valor filtro")
+        if isinstance(editable_first, tk.Entry):
+            editable_first.focus_set()
+        window.grab_set()
+        window.wait_window()
+
+    def _apply_component_product_class_rule(self, *, product_class: str, percent: float, increase: bool) -> int:
+        normalized = product_class.strip().upper()
+        matches = self._collect_product_class_matches(normalized)
+        affected = len(matches)
+        if not affected:
+            return 0
+
+        self.mass_rules.append(
+            {
+                "product_class": normalized,
+                "percent": float(percent),
+                "increase": bool(increase),
+            }
+        )
+        self._reapply_mass_rules()
+        action_text = "aumentado" if increase else "reducido"
+        self.status_var.set(
+            f"Actualización masiva aplicada: ProductClass {product_class} con costo unitario {action_text} {percent:.2f}% en {affected} componente(s)."
+        )
+        return affected
+
+    def _rule_factor_for_product_class(self, product_class: str) -> float:
+        normalized = str(product_class or "").strip().upper()
+        factor = 1.0
+        for rule in self.mass_rules:
+            if str(rule.get("product_class", "") or "").strip().upper() != normalized:
+                continue
+            percent = float(rule.get("percent", 0.0) or 0.0)
+            if bool(rule.get("increase", True)):
+                factor *= 1.0 + (percent / 100.0)
+            else:
+                factor *= 1.0 - (percent / 100.0)
+        return factor
+
+    def _reapply_mass_rules(self) -> None:
+        if not self.scenario_components:
+            return
+
+        for comp in self.scenario_components:
+            base_total = float(comp.get("base_total", comp.get("total", 0.0)) or 0.0)
+            base_unit_cost = float(comp.get("base_unit_cost", comp.get("unit_cost", 0.0)) or 0.0)
+            comp["total"] = base_total
+            comp["unit_cost"] = base_unit_cost
+
+        if not self.mass_rules:
+            self._apply_scenario_edits()
+            return
+
+        if self.current_hierarchy_node is None:
+            for comp in self.scenario_components:
+                factor = self._rule_factor_for_product_class(str(comp.get("product_class", "") or ""))
+                if abs(factor - 1.0) < 0.0000005:
+                    continue
+                qty = float(comp.get("qty_required", 0.0) or 0.0)
+                base_total = float(comp.get("base_total", 0.0) or 0.0)
+                new_total = self._r5(base_total * factor)
+                comp["total"] = new_total
+                comp["unit_cost"] = 0.0 if abs(qty) < 0.0000005 else self._r5(new_total / qty)
+            self._apply_scenario_edits()
+            return
+
+        root_components = list(getattr(self.current_hierarchy_node, "components", []) or [])
+        for index, top_comp in enumerate(root_components):
+            if index >= len(self.scenario_components):
+                break
+            delta = self._collect_rule_delta(top_comp)
+            base_total = float(self.scenario_components[index].get("base_total", 0.0) or 0.0)
+            qty = float(self.scenario_components[index].get("qty_required", 0.0) or 0.0)
+            new_total = self._r5(base_total + delta)
+            self.scenario_components[index]["total"] = new_total
+            self.scenario_components[index]["unit_cost"] = 0.0 if abs(qty) < 0.0000005 else self._r5(new_total / qty)
+
+        self._apply_scenario_edits()
+
+    def _collect_rule_delta(self, comp_line: object) -> float:
+        stock_code = str(getattr(comp_line, "stock_code", "") or "").strip()
+        product_class = str(get_master(stock_code).get("ProductClass", "") or "").strip()
+        factor = self._rule_factor_for_product_class(product_class)
+        current_total = float(getattr(comp_line, "total", 0.0) or 0.0)
+        delta = self._r5(current_total * (factor - 1.0)) if abs(factor - 1.0) >= 0.0000005 else 0.0
+
+        child_node = getattr(comp_line, "node", None)
+        if child_node is not None:
+            for child_comp in list(getattr(child_node, "components", []) or []):
+                delta = self._r5(delta + self._collect_rule_delta(child_comp))
+        return delta
+
+    def _collect_product_class_matches(self, product_class: str) -> list[str]:
+        normalized = str(product_class or "").strip().upper()
+        if not normalized:
+            return []
+
+        matches: list[str] = []
+
+        def add_line(path: str, stock_code: str, description: str) -> None:
+            line = f"{path} -> {stock_code} {description}".strip()
+            if line not in matches:
+                matches.append(line)
+
+        if self.current_hierarchy_node is not None:
+            def walk(node: object, path_parts: list[str]) -> None:
+                node_code = str(getattr(node, "stock_code", "") or "").strip()
+                node_desc = str(getattr(node, "description", "") or "").strip()
+                current_path = path_parts + ([node_code] if node_code else [])
+                for comp in list(getattr(node, "components", []) or []):
+                    stock_code = str(getattr(comp, "stock_code", "") or "").strip()
+                    description = str(getattr(comp, "description", "") or "").strip()
+                    comp_class = str(get_master(stock_code).get("ProductClass", "") or "").strip().upper()
+                    path_text = " > ".join(current_path) if current_path else self.parent_part_var.get().strip()
+                    if comp_class == normalized:
+                        add_line(path_text, stock_code, description)
+                    child_node = getattr(comp, "node", None)
+                    if child_node is not None:
+                        walk(child_node, current_path)
+
+            walk(self.current_hierarchy_node, [])
+        else:
+            parent = self.parent_part_var.get().strip()
+            for comp in self.scenario_components:
+                comp_class = str(comp.get("product_class", "") or "").strip().upper()
+                if comp_class != normalized:
+                    continue
+                add_line(parent, str(comp.get("stock_code", "") or "").strip(), str(comp.get("description", "") or "").strip())
+
+        return matches
+
     def _parse_float_field(self, value: str, label: str) -> float:
         try:
             return float(value) if value else 0.0
@@ -1335,12 +2183,14 @@ class EstimacionesApp(tk.Tk):
         if values is None:
             return
         try:
+            master = get_master(values["stock_code"])
             new_component = {
                 "sequence": f"{(len(self.scenario_components) + 1) * 10:06d}",
                 "parent_part": self.parent_part_var.get().strip(),
                 "stock_code": values["stock_code"],
                 "description": values["description"],
                 "warehouse": values["warehouse"],
+                "product_class": str(master.get("ProductClass", "") or "").strip(),
                 "qty_required": self._parse_float_field(values["qty_required"], "Cantidad unitaria"),
                 "qty_neta": 0.0,
                 "uom": values["uom"] or self.uom_var.get(),
@@ -1377,9 +2227,11 @@ class EstimacionesApp(tk.Tk):
         if values is None:
             return
         try:
+            master = get_master(values["stock_code"])
             comp["stock_code"] = values["stock_code"]
             comp["description"] = values["description"]
             comp["warehouse"] = values["warehouse"]
+            comp["product_class"] = str(master.get("ProductClass", "") or "").strip()
             comp["qty_required"] = self._parse_float_field(values["qty_required"], "Cantidad unitaria")
             comp["uom"] = values["uom"] or self.uom_var.get()
             comp["category"] = values["category"] or "Adquirido"
@@ -1561,7 +2413,7 @@ class EstimacionesApp(tk.Tk):
             return
         self._hide_progress_overlay()
         self._set_loading_state(False)
-        self.status_var.set("No fue posible recalcular con los valores actuales.")
+        self.status_var.set(f"No fue posible recalcular: {exc}")
         if not silent:
             messagebox.showerror("Estimaciones", str(exc))
 
@@ -1592,6 +2444,14 @@ class EstimacionesApp(tk.Tk):
         window = tk.Toplevel(self)
         window.title(f"Jerarquía - {self.parent_part_var.get().strip()}")
         window.geometry("1180x760")
+        header = tk.Frame(window, bg="#eef3fb", relief="solid", bd=1)
+        header.pack(fill="x")
+        ttk.Button(
+            header,
+            text="Imprimir",
+            style="Slim.TButton",
+            command=lambda text=report: self._print_text_report(text),
+        ).pack(side="right", padx=8, pady=6)
         viewer = scrolledtext.ScrolledText(window, wrap="none", font=("Consolas", 9))
         viewer.pack(fill="both", expand=True)
         viewer.insert("1.0", report)

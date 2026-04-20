@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Dict, Iterable, Optional
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+EXECUTABLE_ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else PROJECT_ROOT
+CWD_ROOT = Path.cwd()
 DEFAULT_ENV_PATHS = (
+    EXECUTABLE_ROOT / ".env",
+    EXECUTABLE_ROOT / "configurations" / ".env",
+    CWD_ROOT / ".env",
+    CWD_ROOT / "configurations" / ".env",
     PROJECT_ROOT / ".env",
     PROJECT_ROOT / "configurations" / ".env",
 )
@@ -75,4 +82,3 @@ def get_connection_string() -> str:
         f"TrustServerCertificate={'True' if trust_server_certificate else 'False'};"
         f"Connection Timeout={timeout_seconds};"
     )
-

@@ -10,6 +10,8 @@ El proceso genera:
 
 - `dist/Estimaciones/Estimaciones.exe`
 - `dist/Estimaciones/.env`
+- `Ejecutable/Estimaciones.exe`
+- `Ejecutable/.env`
 
 ## Requisito
 
@@ -40,7 +42,8 @@ Ese archivo:
 1. valida o instala `PyInstaller`
 2. limpia compilaciones previas
 3. compila `scripts/bom_costing_form.py`
-4. copia `.env` al paquete final
+4. refresca `Ejecutable/`
+5. copia `.env` al paquete final
 
 ## Entrega al usuario final
 
@@ -57,6 +60,7 @@ El usuario debe abrir:
 
 - El ejecutable sigue necesitando acceso a la base de datos SQL Server.
 - El archivo `.env` debe acompañar al ejecutable si la conexion depende de esa configuracion.
+- La aplicacion busca `.env` en la carpeta del ejecutable, en `configurations/`, en el directorio actual y en la raiz del proyecto.
 - Si cambia servidor, usuario, base o credenciales, debes actualizar el `.env` de entrega.
 
 ## Alternativa rapida manual
