@@ -39,6 +39,14 @@ Lo que ya esta implementado:
 
 Las secciones siguientes deben leerse como criterio funcional objetivo, pero prevalece el estado real del sistema cuando se documentan decisiones ya aprobadas en uso.
 
+Actualizacion operativa al 2026-04-20:
+
+- `Jerarquia` ya permite impresion directa del reporte textual
+- existe ayuda integrada con `F1` y menu `Ayuda`
+- existe la accion `Actualizar` para aplicar reglas masivas por `ProductClass`
+- la descripcion de `ProductClass` se resuelve desde maestro para apoyar la simulacion
+- estas reglas siguen viviendo solo en memoria y no alteran la base original de SYSPRO
+
 ## 2. Objetivo del programa Estimaciones
 
 El programa `Estimaciones` tiene como objetivo permitir la construccion interactiva de escenarios de costo a partir de una estructura base tomada desde SYSPRO.
@@ -282,6 +290,12 @@ En la version actualmente entregable del formulario:
 - el override operativo del escenario se realiza mediante `Lote estimación`
 
 Esta decision se tomo para mantener una interfaz mas clara en la primera entrega a usuarios.
+
+Decision operativa adicional vigente:
+
+- `F1` o menu `Ayuda` abre una referencia operativa embebida en la interfaz
+- `Actualizar` aplica reglas por `ProductClass` sobre el escenario visible
+- estas reglas no alteran SYSPRO y solo viven en memoria durante la simulacion actual
 
 ## 9.3 Campos editables de componentes
 

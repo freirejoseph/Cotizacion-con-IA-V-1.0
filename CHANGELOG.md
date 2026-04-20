@@ -123,3 +123,25 @@ Objetivo de esta version:
 - dejar una primera entrega util para pruebas con usuarios
 - alinear documentacion con el estado real implementado
 - establecer un flujo reproducible de compilacion y entrega
+
+## 1.0.5 - 2026-04-20
+
+Ampliacion operativa de `Estimaciones` y refuerzo del flujo de entrega local.
+
+Incluye:
+
+- ventana de ayuda integrada en `scripts/bom_costing_form.py` con acceso por menu y `F1`
+- accion `Actualizar` para aplicar reglas masivas por `ProductClass`
+- lectura de descripcion de `ProductClass` desde `SalProductClass`
+- recalculo del arbol visible considerando reglas masivas del escenario
+- boton `Imprimir` en la ventana `Jerarquia`
+- arranque mas silencioso del fallback SQL en Windows para evitar ventanas de PowerShell
+- busqueda de `.env` mas flexible para ejecucion normal y empaquetada
+- actualizacion de `scripts/build_estimaciones_exe.ps1` para refrescar `Ejecutable/` y copiar `.env`
+- actualizacion de `README.md` y documentos operativos de `docs/`
+
+Objetivo de esta version:
+
+- acercar `Estimaciones` a un uso operativo mas completo
+- dejar documentadas las nuevas capacidades de simulacion
+- facilitar la entrega del ejecutable en otra maquina sin reconfiguracion manual innecesaria

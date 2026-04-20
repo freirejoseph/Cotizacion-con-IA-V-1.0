@@ -257,18 +257,25 @@ La pantalla `Estimaciones` ya implementa:
 - carga inicial rapida con `calculate_stock_cost()`
 - `Estimar` con barra de avance
 - `Jerarquía` en ventana textual
+- `Jerarquía` con boton `Imprimir`
 - igualdad de costo entre formulario y reporte `What-if`
 - detalle jerarquico opcional sin alterar el total
 - edicion de escenario en memoria sobre:
   - lote de estimacion
   - componentes
   - operaciones
+- actualizacion masiva por `ProductClass`
 - botones funcionales:
   - `Agregar`
   - `Editar`
   - `Eliminar`
+  - `Actualizar`
+- ayuda integrada:
+  - menu `Ayuda`
+  - tecla `F1`
 - carga asistida desde maestro:
   - descripcion de `Work center` desde `BomWorkCentre`
+  - descripcion de `ProductClass` desde `SalProductClass`
   - descripcion de `N° parte` desde `InvMaster`
 
 ## Criterio documental

@@ -64,12 +64,22 @@ $rows | ConvertTo-Json -Depth 8 -Compress
     env = os.environ.copy()
     env["SQL_CONN"] = connection_string
     env["SQL_QUERY"] = query
+    run_kwargs = {
+        "env": env,
+        "capture_output": True,
+        "text": True,
+        "check": False,
+    }
+    if platform.system().lower() == "windows":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 0
+        run_kwargs["startupinfo"] = startupinfo
+        run_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
     completed = subprocess.run(
         ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script],
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
+        **run_kwargs,
     )
     if completed.returncode != 0:
         raise RuntimeError((completed.stderr or completed.stdout).strip())
