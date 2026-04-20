@@ -67,6 +67,7 @@ class ComponentLine:
 class OperationLine:
     operation: str
     work_centre: str
+    work_centre_description: str
     rate_ind: int
     labor: float
     fixed: float
@@ -130,6 +131,7 @@ def get_master(stock_code: str) -> Dict:
         f"""
         SELECT LTRIM(RTRIM(StockCode)) AS StockCode,
                Description,
+               Mass,
                MaterialCost,
                LabourCost,
                FixOverhead,
@@ -393,6 +395,7 @@ def _operation_breakdown(
             OperationLine(
                 operation=str(op.get("Operation") or ""),
                 work_centre=str(op.get("WorkCentre") or "").strip(),
+                work_centre_description=str(work_centre.get("Description") or "").strip(),
                 rate_ind=rate_ind,
                 labor=labor,
                 fixed=fixed,
@@ -643,21 +646,22 @@ def format_flat_report(
     return "\n".join(lines)
 
 
-def _format_tree_node(node: TreeNode, level: int = 0) -> List[str]:
+def _format_tree_node(node: TreeNode, level: int = 0, include_totals: bool = True) -> List[str]:
     indent = "  " * level
     lines: List[str] = []
     lines.append(
         f"{indent}NODE L{level} {node.stock_code:<15}{node.description[:40]:<40} W/H {node.warehouse:<4} Route {_norm(node.route):<2} EBQ {node.ebq:>10.3f}"
     )
-    lines.append(
-        f"{indent}{'Components :':<16}{node.bom_breakdown.material:>13.5f}{node.bom_breakdown.labor:>11.5f}{node.bom_breakdown.fixed:>12.5f}{node.bom_breakdown.variable:>12.5f}{node.bom_breakdown.total:>12.5f}"
-    )
-    lines.append(
-        f"{indent}{'Operations  :':<16}{node.op_breakdown.material:>13.5f}{node.op_breakdown.labor:>11.5f}{node.op_breakdown.fixed:>12.5f}{node.op_breakdown.variable:>12.5f}{node.op_breakdown.total:>12.5f}"
-    )
-    lines.append(
-        f"{indent}{'Node total :':<16}{node.total_breakdown.material:>13.5f}{node.total_breakdown.labor:>11.5f}{node.total_breakdown.fixed:>12.5f}{node.total_breakdown.variable:>12.5f}{node.total_breakdown.total:>12.5f}"
-    )
+    if include_totals:
+        lines.append(
+            f"{indent}{'Components :':<16}{node.bom_breakdown.material:>13.5f}{node.bom_breakdown.labor:>11.5f}{node.bom_breakdown.fixed:>12.5f}{node.bom_breakdown.variable:>12.5f}{node.bom_breakdown.total:>12.5f}"
+        )
+        lines.append(
+            f"{indent}{'Operations  :':<16}{node.op_breakdown.material:>13.5f}{node.op_breakdown.labor:>11.5f}{node.op_breakdown.fixed:>12.5f}{node.op_breakdown.variable:>12.5f}{node.op_breakdown.total:>12.5f}"
+        )
+        lines.append(
+            f"{indent}{'Node total :':<16}{node.total_breakdown.material:>13.5f}{node.total_breakdown.labor:>11.5f}{node.total_breakdown.fixed:>12.5f}{node.total_breakdown.variable:>12.5f}{node.total_breakdown.total:>12.5f}"
+        )
     lines.append(f"{indent}" + "-" * 118)
     if node.operations:
         lines.append(
@@ -673,7 +677,7 @@ def _format_tree_node(node: TreeNode, level: int = 0) -> List[str]:
             f"{indent}  -> {comp.stock_code:<15}{comp.description[:34]:<34}{comp.warehouse:<4} qty {comp.qty_neta:>12.6f}  {comp.breakdown.material:>13.5f}{comp.breakdown.labor:>11.5f}{comp.breakdown.fixed:>12.5f}{comp.breakdown.variable:>12.5f}{comp.total:>12.5f}"
         )
         if comp.node and (comp.node.components or comp.node.operations):
-            lines.extend(_format_tree_node(comp.node, level + 1))
+            lines.extend(_format_tree_node(comp.node, level + 1, include_totals=include_totals))
     return lines
 
 
@@ -684,9 +688,15 @@ def format_tree_report(
     batch_qty: float | int | str | None = None,
 ) -> str:
     master = get_master(stock_code)
+    flat_breakdown, _, flat_operations = calculate_stock_cost(stock_code, route, batch_qty)
     node = calculate_tree_cost(stock_code, route, batch_qty)
     warehouse = get_warehouse_cost(stock_code)
     effective_batch_qty = _effective_batch_qty(master, batch_qty)
+    op_material = sum(float(getattr(op, "subcontract", 0.0) or 0.0) for op in flat_operations)
+    op_labor = sum(float(getattr(op, "labor", 0.0) or 0.0) for op in flat_operations)
+    op_fixed = sum(float(getattr(op, "fixed", 0.0) or 0.0) for op in flat_operations)
+    op_variable = sum(float(getattr(op, "variable", 0.0) or 0.0) for op in flat_operations)
+    op_total = sum(float(getattr(op, "total", 0.0) or 0.0) for op in flat_operations)
     lines: List[str] = []
     lines.append("Prepared : 2026/04/17 11:49".ljust(43) + "PLASTI-EMPAQUES S.A.".ljust(35) + "Page : 1")
     lines.append("Version  : 6.1.033".ljust(43) + report_type + "  [TREE]")
@@ -699,10 +709,11 @@ def format_tree_report(
         f"{stock_code:<15}{str(master.get('Description', '')).strip():<32}{str(master.get('StockUom', '')).strip():<6}{effective_batch_qty:>12.3f}{str(master.get('WarehouseToUse', '')).strip():>6}{_r5(warehouse.get('UnitCost') or warehouse.get('LastCostEntered') or 0.0):>15.5f}{str(master.get('StockUom', '')).strip():>6}{0.0:>10.3f}{str(master.get('Version', '')).strip():>4}{str(master.get('Release', '')).strip():>4}{_norm(route):>7}"
     )
     lines.append("")
-    lines.extend(_format_tree_node(node, 0))
+    lines.append("Hierarchy detail for the same What-if calculation:")
+    lines.extend(_format_tree_node(node, 0, include_totals=False))
     lines.append("")
     lines.append(
-        f"{'Total what-if cost :':<55}{node.total_breakdown.material:>13.5f}{node.total_breakdown.labor:>11.5f}{node.total_breakdown.fixed:>12.5f}{node.total_breakdown.variable:>12.5f}{node.total_breakdown.total:>12.5f}"
+        f"{'Total what-if cost :':<55}{flat_breakdown.material + op_material:>13.5f}{flat_breakdown.labor + op_labor:>11.5f}{flat_breakdown.fixed + op_fixed:>12.5f}{flat_breakdown.variable + op_variable:>12.5f}{flat_breakdown.total + op_total:>12.5f}"
     )
     lines.append(
         f"{'B.O.M. cost        :':<55}{float(master.get('MaterialCost') or 0.0):>13.5f}{float(master.get('LabourCost') or 0.0):>11.5f}{float(master.get('FixOverhead') or 0.0):>12.5f}{float(master.get('VariableOverhead') or 0.0):>12.5f}{(float(master.get('MaterialCost') or 0.0)+float(master.get('LabourCost') or 0.0)+float(master.get('FixOverhead') or 0.0)+float(master.get('VariableOverhead') or 0.0)):>12.5f}"

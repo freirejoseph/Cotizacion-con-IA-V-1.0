@@ -19,6 +19,26 @@ Este documento fija:
 - reglas de versionamiento de escenarios
 - integracion con el motor actual
 
+## Estado de implementacion actual
+
+Este documento sigue siendo la definicion funcional del producto, pero al 2026-04-19 ya existe una primera version operativa de `Estimaciones`.
+
+Lo que ya esta implementado:
+
+- pantalla tipo SYSPRO en `scripts/bom_costing_form.py`
+- resumen de costo visible
+- paneles de `Operaciones` y `Componentes`
+- arbol de estimacion
+- `Jerarquía` textual
+- `Estimar` con barra de avance
+- escenario editable en memoria
+- acciones `Agregar`, `Editar` y `Eliminar`
+- carga de descripciones desde maestro para:
+  - `Work center`
+  - `N° parte`
+
+Las secciones siguientes deben leerse como criterio funcional objetivo, pero prevalece el estado real del sistema cuando se documentan decisiones ya aprobadas en uso.
+
 ## 2. Objetivo del programa Estimaciones
 
 El programa `Estimaciones` tiene como objetivo permitir la construccion interactiva de escenarios de costo a partir de una estructura base tomada desde SYSPRO.
@@ -226,7 +246,6 @@ Campos globales editables propuestos:
 - `ParentPart` base solo de lectura luego de cargar
 - `Ruta`
 - lote de estimacion
-- `EBQ`
 - warehouse de referencia, si aplica
 - notas del escenario
 
@@ -234,17 +253,17 @@ Campos globales editables propuestos:
 
 Existen campos del padre que afectan a todos los hijos por la logica del motor.
 
-El principal campo global identificado es:
+El principal campo global identificado historicamente es:
 
 - `EBQ`
 
-El `EBQ` debe poder modelarse para responder preguntas del negocio como:
+El `EBQ` puede modelarse conceptualmente para responder preguntas del negocio como:
 
 - cuanto costaria producir `25000`
 - cuanto costaria producir `50000`
 - cuanto costaria producir `100000`
 
-El cambio de `EBQ` debe impactar cualquier calculo dependiente de:
+El cambio de `EBQ` impacta cualquier calculo dependiente de:
 
 - `ScrapQuantity / EBQ`
 - prorrateo de setup
@@ -253,6 +272,16 @@ El cambio de `EBQ` debe impactar cualquier calculo dependiente de:
 - overhead fijo
 - overhead variable
 - costo total acumulado
+
+### Decision operativa vigente
+
+En la version actualmente entregable del formulario:
+
+- `EBQ` se muestra desde `InvMaster`
+- `EBQ` queda visible como referencia
+- el override operativo del escenario se realiza mediante `Lote estimación`
+
+Esta decision se tomo para mantener una interfaz mas clara en la primera entrega a usuarios.
 
 ## 9.3 Campos editables de componentes
 
@@ -272,6 +301,18 @@ Campos editables minimos:
 - `FixedQtyPer`
 - indicadores que afecten la logica de consumo
 - costo del componente, cuando el escenario requiera override
+
+### Estado actual implementado en componentes
+
+Actualmente ya se pueden editar en la interfaz:
+
+- numero de parte
+- descripcion
+- almacen
+- cantidad unitaria
+- unidad de medida
+- categoria
+- costo unitario
 
 Acciones permitidas sobre componentes:
 
@@ -303,6 +344,20 @@ Campos editables minimos:
 - observaciones
 - tasas operativas, si el escenario requiere override manual
 
+### Estado actual implementado en operaciones
+
+Actualmente ya se pueden editar en la interfaz:
+
+- operacion
+- `WorkCentre`
+- indice de tasa
+- run
+- setup
+- startup
+- teardown
+- capacidad
+- subcontrato
+
 Acciones permitidas sobre operaciones:
 
 - agregar operacion
@@ -315,16 +370,17 @@ Acciones permitidas sobre operaciones:
 
 ## 10. Regla especial al cambiar maquina
 
-Cuando el usuario cambie la maquina o `WorkCentre`, el sistema debe traer automaticamente las tasas asociadas desde el centro de trabajo correspondiente.
+Cuando el usuario cambie la maquina o `WorkCentre`, el sistema debe traer automaticamente la informacion maestra asociada desde el centro de trabajo correspondiente.
 
 Esto significa que el cambio de `WorkCentre` no es solo visual.
-Debe disparar actualizacion de las tasas base.
+Debe disparar actualizacion de la descripcion del centro y dejar la base lista para cargar tasas asociadas.
 
 Luego, si se define en la implementacion, podra permitirse override manual adicional.
 
 Pero como criterio funcional:
 
-- el cambio de maquina siempre debe traer automaticamente sus tasas
+- el cambio de maquina siempre debe traer automaticamente sus datos maestros base
+- la descripcion del centro de trabajo ya debe cargarse en la interfaz actual
 
 ## 11. Regla de subensambles repetidos
 
@@ -354,7 +410,6 @@ Cuando el usuario edite ciertos campos criticos, el sistema debe poder recalcula
 
 Campos tipicamente criticos:
 
-- `EBQ`
 - lote
 - cantidad por
 - costo del componente
@@ -516,6 +571,18 @@ Para considerar implementado correctamente el arranque del programa `Estimacione
 10. Recalcular en vivo o con boton `Estimar`.
 11. Mostrar costo simulado final.
 12. Preparar el escenario para versionamiento futuro.
+
+## 23. Decision operativa sobre jerarquia
+
+La opcion `Maintain hierarchies` no debe cambiar el costo oficial del escenario.
+
+Su funcion es:
+
+- expandir el detalle de componentes y subcomponentes
+- permitir inspeccion visual del arbol
+- mostrar la jerarquia completa en la ventana `Jerarquía`
+
+El costo oficial mostrado debe seguir la misma logica `What-if` que el reporte textual base.
 
 ## 21. Criterio final de construccion
 

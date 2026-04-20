@@ -87,6 +87,74 @@ Caso de regresion sugerido:
 - `Route 0`
 - `BatchQty 12500`
 
+## Guia visual paso a paso para Estimaciones
+
+Usar `9320000432` como caso base funcional para validar la interfaz `Estimaciones`.
+
+Objetivo de esta guia:
+
+- revisar layout
+- validar distribucion de paneles
+- confirmar visibilidad de campos editables
+- confirmar consistencia numerica con el reporte textual `What-if`
+- documentar un mismo caso de referencia para todas las iteraciones
+
+Secuencia recomendada:
+
+1. Abrir la maqueta:
+   - `python scripts/bom_costing_form.py`
+2. Confirmar que la pantalla arranca con:
+   - `ParentPart = 9320000432`
+   - `Ruta = 0 - ROUTE 0`
+   - `Lote` inicial tomado desde `InvMaster.Ebq` si aun no hay override
+   - `EBQ` visible desde maestro
+3. Revisar la cabecera superior:
+   - validar que el padre visible sea `9320000432`
+   - validar descripcion de referencia
+   - validar que `Lote estimación` sea editable
+   - validar que `EBQ` y `Warehouse` queden visibles como solo lectura
+4. Revisar el panel izquierdo:
+   - confirmar que el arbol use `9320000432` como nodo raiz
+   - confirmar que se distingan componentes, subensambles y operaciones
+   - si `Maintain hierarchies` esta desmarcado, el detalle visible debe quedar a 1 nivel
+   - si `Maintain hierarchies` esta marcado, solo debe expandirse el detalle, no cambiar el total
+5. Revisar el panel derecho superior:
+   - confirmar que las operaciones se vean en formato tabular
+   - confirmar columnas operativas principales:
+     - `Work center`
+     - `Description`
+     - `Rate ind`
+     - `Run time`
+     - `Ciclo`
+     - `Setup time`
+     - `Startup time`
+     - `Teardown time`
+     - `Sub-contracted`
+   - validar que `Agregar`, `Editar` y `Eliminar` esten disponibles
+6. Revisar el panel derecho inferior:
+   - confirmar que los componentes del caso `9320000432` sean legibles
+   - validar que `Agregar`, `Editar` y `Eliminar` esten disponibles
+   - validar que al poner `N° parte` y pulsar `Enter` se cargue la descripcion desde `InvMaster`
+7. Revisar el resumen de costo:
+   - validar jerarquia visual de `Material`, `Labor`, `OH fijo`, `OH variable` y `Total simulado`
+   - este bloque debe quedar siempre visible como salida principal del escenario
+8. Validar recosteo en vivo:
+   - cambiar `Lote estimación`
+   - editar `Cantidad unitaria` o `Costo unitario` de un componente
+   - editar `Work center` o tiempos de una operacion
+   - confirmar que el resumen se actualice
+9. Validar consistencia con reporte textual:
+   - lanzar `Jerarquía`
+   - comparar con `python scripts/generate_bom_costing_report.py 9320000432 --batch-qty <LOTE>`
+   - confirmar mismo total en formulario y reporte
+
+Regla de trabajo para esta fase:
+
+- usar `9320000432` como referencia funcional y visual estable
+- el costo mostrado en formulario debe coincidir con el reporte textual
+- `Maintain hierarchies` solo cambia la visualizacion del detalle, no el costo base
+- la estructura editable debe vivir en memoria, sin alterar SYSPRO
+
 Si los resultados no coinciden con lo esperado, revisar en este orden:
 
 1. cadena de conexion y contexto de warehouse
@@ -180,7 +248,28 @@ Para futuras versiones:
   - cantidades
   - scrap
   - costos
-  - `EBQ`
+  - overrides multinivel por nodo
+
+## Estado implementado al 2026-04-19
+
+La pantalla `Estimaciones` ya implementa:
+
+- carga inicial rapida con `calculate_stock_cost()`
+- `Estimar` con barra de avance
+- `Jerarquía` en ventana textual
+- igualdad de costo entre formulario y reporte `What-if`
+- detalle jerarquico opcional sin alterar el total
+- edicion de escenario en memoria sobre:
+  - lote de estimacion
+  - componentes
+  - operaciones
+- botones funcionales:
+  - `Agregar`
+  - `Editar`
+  - `Eliminar`
+- carga asistida desde maestro:
+  - descripcion de `Work center` desde `BomWorkCentre`
+  - descripcion de `N° parte` desde `InvMaster`
 
 ## Criterio documental
 
