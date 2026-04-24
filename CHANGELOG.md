@@ -145,3 +145,24 @@ Objetivo de esta version:
 - acercar `Estimaciones` a un uso operativo mas completo
 - dejar documentadas las nuevas capacidades de simulacion
 - facilitar la entrega del ejecutable en otra maquina sin reconfiguracion manual innecesaria
+
+## 1.0.6 - 2026-04-24
+
+Alineacion del reporte `Jerarquia` y formalizacion de la propagacion por `Mass`.
+
+Incluye:
+
+- reporte jerarquico con cada `NODE` en una sola fila, incluyendo `Uom`, `Mass`, lote estimado, kilos estimados, `EBQ master` y `EBQ estimado`
+- linea en blanco antes de imprimir cada nuevo nodo para diferenciar niveles de la jerarquia
+- componentes del reporte con informacion de cantidad, unidad, masa, lote del nodo, kilos estimados y costos en la misma fila
+- encabezados del reporte en negrita en visor, impresion y PDF
+- PDF de reporte con fuente monoespaciada para conservar alineacion de columnas
+- documento `docs/14_factor_mass_universal_y_propagacion_de_lotes.md`
+- indice de documentacion actualizado con los documentos 13 y 14
+- `outputs/` ignorado para no versionar reportes generados localmente
+
+Objetivo de esta version:
+
+- hacer que la lectura de Jerarquia coincida con el formato operativo esperado
+- evitar que la informacion de un mismo nodo quede partida en varias filas
+- dejar documentada la regla funcional de equivalencia por `Mass`

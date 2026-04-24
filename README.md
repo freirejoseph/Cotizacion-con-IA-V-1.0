@@ -12,6 +12,7 @@ Este repositorio contiene el motor de costeo del proyecto, orientado a reconstru
 - soporta escenarios editables en memoria para componentes y operaciones
 - soporta reglas masivas de simulacion por `ProductClass`
 - incluye ayuda integrada y salida imprimible del reporte jerarquico
+- muestra la informacion de cada nodo de `Jerarquia` en una sola fila, con encabezados resaltados
 - permite empaquetar la herramienta como ejecutable Windows
 
 ## Estructura activa del repositorio
@@ -87,6 +88,8 @@ Punto de entrada recomendado:
 - [09. Guia operativa del motor](docs/09_guia_operativa_motor_costeo.md)
 - [10. Estimaciones v1.1](docs/10_estimaciones_v1_1_definicion_funcional.md)
 - [12. Empaquetado a EXE](docs/12_empaquetado_estimaciones_exe.md)
+- [13. Transportabilidad a nueva maquina](docs/13_transportabilidad_nueva_maquina_vscode.md)
+- [14. Factor Mass universal y propagacion de lotes](docs/14_factor_mass_universal_y_propagacion_de_lotes.md)
 
 ## Regla de trabajo
 
@@ -118,6 +121,7 @@ Incluye:
 - accion `Actualizar` para aplicar cambios masivos por `ProductClass`
 - ayuda integrada con `F1`
 - impresion del reporte textual desde `Jerarquia`
+- reporte `Jerarquia` alineado por nodo: codigo, descripcion, W/H, ruta, UDM, Mass, lote, kilos y EBQ quedan en la misma fila
 - formularios auxiliares que cargan descripcion desde maestro al ingresar:
   - `Work center` desde `BomWorkCentre`
   - `ProductClass` desde `SalProductClass`

@@ -598,6 +598,13 @@ Su funcion es:
 
 El costo oficial mostrado debe seguir la misma logica `What-if` que el reporte textual base.
 
+El reporte textual de `Jerarquia` debe imprimirse con criterio de lectura por nodo:
+
+- la informacion propia de un `NODE` debe permanecer en una sola fila
+- cada fila de nodo debe incluir codigo, descripcion, W/H, ruta, UDM, `Mass`, lote, kilos y EBQ
+- antes de cada nuevo nodo debe dejarse una linea en blanco
+- los encabezados del reporte deben mostrarse en negrita en pantalla, impresion y PDF
+
 ## 21. Criterio final de construccion
 
 Todo programador que implemente este modulo debe asumir este criterio:

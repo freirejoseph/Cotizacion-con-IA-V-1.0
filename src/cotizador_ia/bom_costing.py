@@ -110,7 +110,8 @@ class TreeNode:
     description: str
     warehouse: str
     route: str
-    ebq: float
+    master_ebq: float
+    estimated_ebq: float
     bom_breakdown: CostBreakdown
     op_breakdown: CostBreakdown
     components: List[TreeComponentLine] = field(default_factory=list)
@@ -131,6 +132,7 @@ def get_master(stock_code: str) -> Dict:
         f"""
         SELECT LTRIM(RTRIM(StockCode)) AS StockCode,
                Description,
+               PartCategory,
                Mass,
                MaterialCost,
                LabourCost,
@@ -362,6 +364,31 @@ def _effective_batch_qty(master: Dict, batch_qty: float | int | str | None) -> f
     return value if value > 0 else 1.0
 
 
+def _master_mass(master: Dict | None) -> float:
+    if not master:
+        return 0.0
+    return _r5(master.get("Mass") or 0.0)
+
+
+def _propagate_batch_qty(
+    parent_master: Dict | None,
+    parent_batch_qty: float | int | str | None,
+    node_master: Dict | None,
+) -> float:
+    parent_qty = _r5(parent_batch_qty or 0.0)
+    if parent_qty <= 0:
+        return _effective_batch_qty(node_master or {}, None)
+
+    parent_mass = _master_mass(parent_master)
+    node_mass = _master_mass(node_master)
+    if parent_mass > 0 and node_mass > 0:
+        common_mass = parent_qty * parent_mass
+        propagated = common_mass / node_mass
+        if propagated > 0:
+            return _r5(propagated)
+    return parent_qty
+
+
 def _operation_breakdown(
     stock_code: str,
     route: str = "0",
@@ -526,7 +553,9 @@ def calculate_tree_cost(
     master = get_master(stock_code)
     warehouse = str(master.get("WarehouseToUse", "") or "").strip() if master else ""
     description = str(master.get("Description", "") or "").strip()
-    ebq = _effective_batch_qty(master, batch_qty)
+    master_ebq = _r5(master.get("Ebq") or 1.0) if master else 1.0
+    estimated_ebq = _effective_batch_qty(master, batch_qty)
+    part_category = str(master.get("PartCategory", "") or "").strip().upper()
 
     if stock_code in _stack:
         leaf_breakdown = _leaf_breakdown(stock_code)
@@ -535,7 +564,8 @@ def calculate_tree_cost(
             description=description,
             warehouse=warehouse,
             route=_norm(route),
-            ebq=ebq,
+            master_ebq=master_ebq,
+            estimated_ebq=estimated_ebq,
             bom_breakdown=leaf_breakdown,
             op_breakdown=CostBreakdown(),
         )
@@ -544,6 +574,22 @@ def calculate_tree_cost(
 
     bom_rows = get_bom(stock_code, route)
     op_breakdown, op_lines = _operation_breakdown(stock_code, route, batch_qty)
+    can_expand = part_category == "M" or not part_category
+
+    if not can_expand:
+        leaf_breakdown = _leaf_breakdown(stock_code)
+        node = TreeNode(
+            stock_code=stock_code,
+            description=description,
+            warehouse=warehouse,
+            route=_norm(route),
+            master_ebq=master_ebq,
+            estimated_ebq=estimated_ebq,
+            bom_breakdown=leaf_breakdown,
+            op_breakdown=CostBreakdown(),
+        )
+        _memo[stock_code] = node
+        return node
 
     if not bom_rows and not op_lines:
         leaf_breakdown = _leaf_breakdown(stock_code)
@@ -552,7 +598,8 @@ def calculate_tree_cost(
             description=description,
             warehouse=warehouse,
             route=_norm(route),
-            ebq=ebq,
+            master_ebq=master_ebq,
+            estimated_ebq=estimated_ebq,
             bom_breakdown=leaf_breakdown,
             op_breakdown=CostBreakdown(),
         )
@@ -566,14 +613,17 @@ def calculate_tree_cost(
     for row in bom_rows:
         comp_code = str(row.get("Component") or "").strip()
         comp_wh = str(get_master(comp_code).get("WarehouseToUse", "") or "").strip() or str(row.get("Warehouse") or "").strip()
-        qty = _component_qty(row, ebq)
-        child_node = calculate_tree_cost(comp_code, route, None, next_stack, _memo)
-        line_breakdown = child_node.total_breakdown.scale(qty)
+        qty = _component_qty(row, estimated_ebq)
+        child_master = get_master(comp_code)
+        child_category = str(child_master.get("PartCategory", "") or "").strip().upper()
+        child_batch_qty = _propagate_batch_qty(master, estimated_ebq, child_master)
+        child_node = calculate_tree_cost(comp_code, route, child_batch_qty, next_stack, _memo) if (child_category == "M" or not child_category) else None
+        line_breakdown = child_node.total_breakdown.scale(qty) if child_node is not None else _component_breakdown(comp_code, comp_wh).scale(qty)
         bom_breakdown = bom_breakdown.add(line_breakdown)
         components.append(
             TreeComponentLine(
                 stock_code=comp_code,
-                description=str(get_master(comp_code).get("Description", "") or "").strip(),
+                description=str(child_master.get("Description", "") or "").strip(),
                 warehouse=comp_wh,
                 qty_per=float(
                     Decimal(str(row.get("QtyPer") or row.get("QtyPerEnt") or 0.0)).quantize(Q6, rounding=ROUND_HALF_UP)
@@ -590,7 +640,8 @@ def calculate_tree_cost(
         description=description,
         warehouse=warehouse,
         route=_norm(route),
-        ebq=ebq,
+        master_ebq=master_ebq,
+        estimated_ebq=estimated_ebq,
         bom_breakdown=bom_breakdown,
         op_breakdown=op_breakdown,
         components=components,
@@ -666,33 +717,57 @@ def format_flat_report(
 
 def _format_tree_node(node: TreeNode, level: int = 0, include_totals: bool = True) -> List[str]:
     indent = "  " * level
+    master = get_master(node.stock_code)
+    mass = _master_mass(master)
+    master_mass = node.master_ebq * mass
+    estimated_mass = node.estimated_ebq * mass
+    stock_uom = str(master.get("StockUom", "")).strip()
+    mass_text = f"{mass:g}"
+    node_lot_text = f"{node.estimated_ebq:g}"
+    estimated_mass_text = f"{estimated_mass:g}"
+    info_width = 190
     lines: List[str] = []
+    lines.append("")
     lines.append(
-        f"{indent}NODE L{level} {node.stock_code:<15}{node.description[:40]:<40} W/H {node.warehouse:<4} Route {_norm(node.route):<2} EBQ {node.ebq:>10.3f}"
+        f"{indent}NODE L{level} {node.stock_code:<18}{node.description[:38]:<38}"
+        f"W/H {node.warehouse:<4} Route {_norm(node.route):<2} Uom {stock_uom:<4} "
+        f"Mass {mass_text:>10}  Lote estimado {node_lot_text:>12}  Kilos estimados {estimated_mass_text:>12} kg  "
+        f"EBQ master {node.master_ebq:>10.3f} ({master_mass:>10.3f} kg)  "
+        f"EBQ estimado {node.estimated_ebq:>10.3f} ({estimated_mass:>10.3f} kg)"
     )
     if include_totals:
         lines.append(
-            f"{indent}{'Components :':<16}{node.bom_breakdown.material:>13.5f}{node.bom_breakdown.labor:>11.5f}{node.bom_breakdown.fixed:>12.5f}{node.bom_breakdown.variable:>12.5f}{node.bom_breakdown.total:>12.5f}"
+            f"{indent}{'Components :':<16}{node.bom_breakdown.material:>16.5f}{node.bom_breakdown.labor:>12.5f}{node.bom_breakdown.fixed:>12.5f}{node.bom_breakdown.variable:>12.5f}{node.bom_breakdown.total:>12.5f}"
         )
         lines.append(
-            f"{indent}{'Operations  :':<16}{node.op_breakdown.material:>13.5f}{node.op_breakdown.labor:>11.5f}{node.op_breakdown.fixed:>12.5f}{node.op_breakdown.variable:>12.5f}{node.op_breakdown.total:>12.5f}"
+            f"{indent}{'Operations  :':<16}{node.op_breakdown.material:>16.5f}{node.op_breakdown.labor:>12.5f}{node.op_breakdown.fixed:>12.5f}{node.op_breakdown.variable:>12.5f}{node.op_breakdown.total:>12.5f}"
         )
         lines.append(
-            f"{indent}{'Node total :':<16}{node.total_breakdown.material:>13.5f}{node.total_breakdown.labor:>11.5f}{node.total_breakdown.fixed:>12.5f}{node.total_breakdown.variable:>12.5f}{node.total_breakdown.total:>12.5f}"
+            f"{indent}{'Node total :':<16}{node.total_breakdown.material:>16.5f}{node.total_breakdown.labor:>12.5f}{node.total_breakdown.fixed:>12.5f}{node.total_breakdown.variable:>12.5f}{node.total_breakdown.total:>12.5f}"
         )
-    lines.append(f"{indent}" + "-" * 118)
+    lines.append(f"{indent}" + "-" * info_width)
     if node.operations:
         lines.append(
-            f"{indent}Op   Work center   Rate   Run      Setup    Startup  Teardown  Sub-contr.  Labor and set-up  Fixed OH   Variable OH   Total"
+            f"{indent}Op   Work center      Rate   Run      Setup    Startup  Teardown  Sub-contr.  Labor and set-up  Fixed OH   Variable OH   Total"
         )
         for op in node.operations:
             lines.append(
                 f"{indent}{op.operation:<4}{op.work_centre:<13}{op.rate_ind:>3}{op.run_time:>8.4f}{op.setup_time:>9.4f}{op.startup_time:>10.4f}{op.teardown_time:>10.4f}{op.subcontract:>12.5f}{op.labor:>16.5f}{op.fixed:>11.5f}{op.variable:>13.5f}{op.total:>12.5f}"
             )
-        lines.append(f"{indent}" + "-" * 118)
+        lines.append(f"{indent}" + "-" * info_width)
     for comp in node.components:
+        comp_master = get_master(comp.stock_code)
+        comp_mass = _master_mass(comp_master)
+        comp_lot_kg = comp.qty_neta * comp_mass
+        comp_uom = str(comp_master.get("StockUom", "")).strip()
+        comp_mass_text = f"{comp_mass:g}"
+        comp_lot_text = f"{comp.qty_neta:g}"
+        comp_lot_kg_text = f"{comp_lot_kg:g}"
         lines.append(
-            f"{indent}  -> {comp.stock_code:<15}{comp.description[:34]:<34}{comp.warehouse:<4} qty {comp.qty_neta:>12.6f}  {comp.breakdown.material:>13.5f}{comp.breakdown.labor:>11.5f}{comp.breakdown.fixed:>12.5f}{comp.breakdown.variable:>12.5f}{comp.total:>12.5f}"
+            f"{indent}  -> {comp.stock_code:<18}{comp.description[:32]:<32}{comp.warehouse:<4} qty {comp.qty_neta:>12.6f}  "
+            f"Uom {comp_uom:<4} Mass {comp_mass_text:>10}  Lote del nodo {comp_lot_text:>12}  "
+            f"Kilos estimados {comp_lot_kg_text:>12} kg  "
+            f"{comp.breakdown.material:>12.5f}{comp.breakdown.labor:>10.5f}{comp.breakdown.fixed:>10.5f}{comp.breakdown.variable:>10.5f}{comp.total:>10.5f}"
         )
         if comp.node and (comp.node.components or comp.node.operations):
             lines.extend(_format_tree_node(comp.node, level + 1, include_totals=include_totals))
@@ -716,25 +791,25 @@ def format_tree_report(
     op_variable = sum(float(getattr(op, "variable", 0.0) or 0.0) for op in flat_operations)
     op_total = sum(float(getattr(op, "total", 0.0) or 0.0) for op in flat_operations)
     lines: List[str] = []
-    lines.append("Prepared : 2026/04/17 11:49".ljust(43) + "PLASTI-EMPAQUES S.A.".ljust(35) + "Page : 1")
+    lines.append("Prepared : 2026/04/17 11:49".ljust(48) + "PLASTI-EMPAQUES S.A.".ljust(40) + "Page : 1")
     lines.append("Version  : 6.1.033".ljust(43) + report_type + "  [TREE]")
     lines.append("")
-    lines.append("-" * 133)
+    lines.append("-" * 160)
     lines.append(
-        f"Stock code      Description                     U/m   Economic batch qty   W/h   Inventory cost   U/m   Pan size Rev Rel  Route"
+        f"Stock code        Description                           U/m   Economic batch qty   W/h   Inventory cost   U/m   Pan size Rev Rel  Route"
     )
     lines.append(
-        f"{stock_code:<15}{str(master.get('Description', '')).strip():<32}{str(master.get('StockUom', '')).strip():<6}{effective_batch_qty:>12.3f}{str(master.get('WarehouseToUse', '')).strip():>6}{_r5(warehouse.get('UnitCost') or warehouse.get('LastCostEntered') or 0.0):>15.5f}{str(master.get('StockUom', '')).strip():>6}{0.0:>10.3f}{str(master.get('Version', '')).strip():>4}{str(master.get('Release', '')).strip():>4}{_norm(route):>7}"
+        f"{stock_code:<18}{str(master.get('Description', '')).strip():<39}{str(master.get('StockUom', '')).strip():<6}{effective_batch_qty:>12.3f}{str(master.get('WarehouseToUse', '')).strip():>6}{_r5(warehouse.get('UnitCost') or warehouse.get('LastCostEntered') or 0.0):>15.5f}{str(master.get('StockUom', '')).strip():>6}{0.0:>10.3f}{str(master.get('Version', '')).strip():>4}{str(master.get('Release', '')).strip():>4}{_norm(route):>7}"
     )
     lines.append("")
     lines.append("Hierarchy detail for the same What-if calculation:")
     lines.extend(_format_tree_node(node, 0, include_totals=False))
     lines.append("")
     lines.append(
-        f"{'Total what-if cost :':<55}{flat_breakdown.material + op_material:>13.5f}{flat_breakdown.labor + op_labor:>11.5f}{flat_breakdown.fixed + op_fixed:>12.5f}{flat_breakdown.variable + op_variable:>12.5f}{flat_breakdown.total + op_total:>12.5f}"
+        f"{'Total what-if cost :':<60}{flat_breakdown.material + op_material:>14.5f}{flat_breakdown.labor + op_labor:>12.5f}{flat_breakdown.fixed + op_fixed:>12.5f}{flat_breakdown.variable + op_variable:>12.5f}{flat_breakdown.total + op_total:>12.5f}"
     )
     lines.append(
-        f"{'B.O.M. cost        :':<55}{float(master.get('MaterialCost') or 0.0):>13.5f}{float(master.get('LabourCost') or 0.0):>11.5f}{float(master.get('FixOverhead') or 0.0):>12.5f}{float(master.get('VariableOverhead') or 0.0):>12.5f}{(float(master.get('MaterialCost') or 0.0)+float(master.get('LabourCost') or 0.0)+float(master.get('FixOverhead') or 0.0)+float(master.get('VariableOverhead') or 0.0)):>12.5f}"
+        f"{'B.O.M. cost        :':<60}{float(master.get('MaterialCost') or 0.0):>14.5f}{float(master.get('LabourCost') or 0.0):>12.5f}{float(master.get('FixOverhead') or 0.0):>12.5f}{float(master.get('VariableOverhead') or 0.0):>12.5f}{(float(master.get('MaterialCost') or 0.0)+float(master.get('LabourCost') or 0.0)+float(master.get('FixOverhead') or 0.0)+float(master.get('VariableOverhead') or 0.0)):>12.5f}"
     )
     lines.append("")
     lines.append("End of report")

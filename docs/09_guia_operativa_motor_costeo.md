@@ -1,4 +1,4 @@
-# Guia operativa del motor de costeo
+﻿# Guia operativa del motor de costeo
 
 ## Objetivo
 
@@ -111,7 +111,7 @@ Secuencia recomendada:
 3. Revisar la cabecera superior:
    - validar que el padre visible sea `9320000432`
    - validar descripcion de referencia
-   - validar que `Lote estimación` sea editable
+   - validar que `Lote estimaciÃ³n` sea editable
    - validar que `EBQ` y `Warehouse` queden visibles como solo lectura
 4. Revisar el panel izquierdo:
    - confirmar que el arbol use `9320000432` como nodo raiz
@@ -134,17 +134,17 @@ Secuencia recomendada:
 6. Revisar el panel derecho inferior:
    - confirmar que los componentes del caso `9320000432` sean legibles
    - validar que `Agregar`, `Editar` y `Eliminar` esten disponibles
-   - validar que al poner `N° parte` y pulsar `Enter` se cargue la descripcion desde `InvMaster`
+   - validar que al poner `NÂ° parte` y pulsar `Enter` se cargue la descripcion desde `InvMaster`
 7. Revisar el resumen de costo:
    - validar jerarquia visual de `Material`, `Labor`, `OH fijo`, `OH variable` y `Total simulado`
    - este bloque debe quedar siempre visible como salida principal del escenario
 8. Validar recosteo en vivo:
-   - cambiar `Lote estimación`
+   - cambiar `Lote estimaciÃ³n`
    - editar `Cantidad unitaria` o `Costo unitario` de un componente
    - editar `Work center` o tiempos de una operacion
    - confirmar que el resumen se actualice
 9. Validar consistencia con reporte textual:
-   - lanzar `Jerarquía`
+   - lanzar `JerarquÃ­a`
    - comparar con `python scripts/generate_bom_costing_report.py 9320000432 --batch-qty <LOTE>`
    - confirmar mismo total en formulario y reporte
 
@@ -250,14 +250,17 @@ Para futuras versiones:
   - costos
   - overrides multinivel por nodo
 
-## Estado implementado al 2026-04-19
+## Estado implementado al 2026-04-24
 
 La pantalla `Estimaciones` ya implementa:
 
 - carga inicial rapida con `calculate_stock_cost()`
 - `Estimar` con barra de avance
-- `Jerarquía` en ventana textual
-- `Jerarquía` con boton `Imprimir`
+- `Jerarquia` alineada por nodo, dejando codigo, descripcion, W/H, ruta, UDM, `Mass`, lote, kilos y EBQ en una sola fila
+- linea en blanco antes de cada nuevo nodo del reporte para separar visualmente los niveles
+- encabezados del reporte jerarquico en negrita en visor, impresion y PDF
+- `JerarquÃ­a` en ventana textual
+- `JerarquÃ­a` con boton `Imprimir`
 - igualdad de costo entre formulario y reporte `What-if`
 - detalle jerarquico opcional sin alterar el total
 - edicion de escenario en memoria sobre:
@@ -276,10 +279,11 @@ La pantalla `Estimaciones` ya implementa:
 - carga asistida desde maestro:
   - descripcion de `Work center` desde `BomWorkCentre`
   - descripcion de `ProductClass` desde `SalProductClass`
-  - descripcion de `N° parte` desde `InvMaster`
+  - descripcion de `NÂ° parte` desde `InvMaster`
 
 ## Criterio documental
 
 La documentacion operativa del motor debe mantenerse en `docs/`.
 
 No se debe volver a duplicar esta misma informacion en otra carpeta documental del repositorio.
+

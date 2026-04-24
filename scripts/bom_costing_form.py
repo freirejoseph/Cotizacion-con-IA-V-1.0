@@ -3,13 +3,12 @@ from __future__ import annotations
 import ctypes
 import os
 import re
-import subprocess
-import tempfile
+import textwrap
 import tkinter as tk
 from pathlib import Path
 import sys
 from threading import Thread
-from tkinter import messagebox, scrolledtext, ttk
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -46,8 +45,8 @@ class EstimacionesApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("Estimaciones")
-        self.geometry("1600x930")
-        self.minsize(1280, 760)
+        self.geometry("1760x980")
+        self.minsize(1500, 860)
         self.configure(bg=WIN_BG)
 
         self.parent_part_var = tk.StringVar(value="9320000432")
@@ -72,12 +71,16 @@ class EstimacionesApp(tk.Tk):
         self.progress_bar: ttk.Progressbar | None = None
         self.current_master: dict[str, object] = {}
         self.current_hierarchy_node: object | None = None
+        self.current_tree_context: tuple[str, str, float] | None = None
         self.scenario_components: list[dict[str, object]] = []
         self.scenario_operations: list[dict[str, object]] = []
         self.mass_rules: list[dict[str, object]] = []
         self.help_window: tk.Toplevel | None = None
         self._edit_widgets: dict[str, tk.Entry] = {}
         self._scenario_recalc_after_id: str | None = None
+        self._hierarchy_toggle_after_id: str | None = None
+        self._hierarchy_report_token = 0
+        self._hierarchy_report_cache: dict[tuple[str, str, float, bool], str] = {}
 
         self._build_style()
         self._build_menu()
@@ -96,19 +99,20 @@ class EstimacionesApp(tk.Tk):
         style.configure("App.TFrame", background=WIN_BG)
         style.configure("Chrome.TFrame", background=BAR_BG)
         style.configure("Panel.TFrame", background=PANEL_BG, relief="solid", borderwidth=1)
-        style.configure("Header.TLabel", background=BAR_BG, foreground=TEXT_DARK, font=("Segoe UI", 9))
-        style.configure("Section.TLabel", background=BAR_BG, foreground=TEXT_DARK, font=("Segoe UI", 9, "bold"))
-        style.configure("Value.TLabel", background=READONLY_BG, foreground="#1e1e1e", padding=(6, 2))
-        style.configure("Hint.TLabel", background=WIN_BG, foreground="#516b90", font=("Segoe UI", 8))
-        style.configure("Status.TLabel", background=STATUS_BG, foreground="#2a446b", font=("Segoe UI", 8))
+        style.configure("Header.TLabel", background=BAR_BG, foreground=TEXT_DARK, font=("Segoe UI", 10))
+        style.configure("Section.TLabel", background=BAR_BG, foreground=TEXT_DARK, font=("Segoe UI", 10, "bold"))
+        style.configure("Value.TLabel", background=READONLY_BG, foreground="#1e1e1e", padding=(6, 2), font=("Segoe UI", 9))
+        style.configure("Hint.TLabel", background=WIN_BG, foreground="#516b90", font=("Segoe UI", 9))
+        style.configure("Status.TLabel", background=STATUS_BG, foreground="#2a446b", font=("Segoe UI", 9))
         style.configure(
             "Syspro.Treeview",
             background="white",
             fieldbackground="white",
             foreground="#111111",
-            rowheight=22,
+            rowheight=26,
             bordercolor=PANEL_BORDER,
             borderwidth=1,
+            font=("Segoe UI", 10),
         )
         style.configure(
             "Syspro.Treeview.Heading",
@@ -116,12 +120,12 @@ class EstimacionesApp(tk.Tk):
             foreground=TEXT_DARK,
             relief="solid",
             borderwidth=1,
-            font=("Segoe UI", 8, "bold"),
+            font=("Segoe UI", 11, "bold"),
         )
         style.map("Syspro.Treeview", background=[("selected", "#ffd77b")], foreground=[("selected", "#111111")])
         style.map("Syspro.Treeview.Heading", background=[("active", "#dfeafc")])
-        style.configure("Slim.TButton", padding=(6, 2), font=("Segoe UI", 8))
-        style.configure("Topbar.TButton", padding=(8, 2), font=("Segoe UI", 8))
+        style.configure("Slim.TButton", padding=(6, 2), font=("Segoe UI", 9))
+        style.configure("Topbar.TButton", padding=(8, 2), font=("Segoe UI", 9))
         style.configure("Topbar.TCombobox", padding=1)
 
     def _build_menu(self) -> None:
@@ -220,8 +224,8 @@ class EstimacionesApp(tk.Tk):
     def _build_info_strip(self, parent: ttk.Frame) -> None:
         strip = ttk.Frame(parent, style="App.TFrame")
         strip.grid(row=1, column=0, sticky="ew", pady=(6, 6))
-        strip.columnconfigure(0, weight=1)
-        strip.columnconfigure(1, weight=1)
+        strip.columnconfigure(0, weight=1, minsize=520)
+        strip.columnconfigure(1, weight=1, minsize=520)
 
         left = self._panel(strip, "Parent Information")
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 3))
@@ -246,7 +250,7 @@ class EstimacionesApp(tk.Tk):
         left_panel = self._panel(workspace, "Estimación")
         left_panel.body.columnconfigure(0, weight=1)
         left_panel.body.rowconfigure(1, weight=1)
-        workspace.add(left_panel, weight=34)
+        workspace.add(left_panel, weight=30)
 
         self._build_tree_toolbar(left_panel.body)
         self.tree = ttk.Treeview(
@@ -261,15 +265,19 @@ class EstimacionesApp(tk.Tk):
         self.tree.heading("udm", text="")
         self.tree.heading("tipo", text="Clasificación")
         self.tree.heading("total", text="Costo")
-        self.tree.column("#0", width=260, stretch=True)
+        self.tree.column("#0", width=320, stretch=True)
         self.tree.column("udm", width=45, anchor="center")
-        self.tree.column("tipo", width=110, anchor="w")
-        self.tree.column("total", width=80, anchor="e")
+        self.tree.column("tipo", width=140, anchor="w")
+        self.tree.column("total", width=95, anchor="e")
+        self.tree.tag_configure("tree-parent", font=("Segoe UI", 10, "bold"), foreground="#0f2748")
+        self.tree.tag_configure("tree-component", font=("Segoe UI", 9), foreground="#17365d")
+        self.tree.tag_configure("tree-subcomponent", font=("Segoe UI", 9, "bold"), foreground="#0c4a6e")
+        self.tree.tag_configure("tree-operation", font=("Segoe UI", 9, "italic"), foreground="#5c3a00")
         self.tree.grid(row=1, column=0, sticky="nsew")
         self._load_tree()
 
         right_split = ttk.Panedwindow(workspace, orient="vertical")
-        workspace.add(right_split, weight=66)
+        workspace.add(right_split, weight=70)
 
         ops_panel = self._panel(right_split, "Operaciones")
         ops_panel.body.columnconfigure(0, weight=1)
@@ -294,7 +302,7 @@ class EstimacionesApp(tk.Tk):
         for key, title, width, anchor in [
             ("oper", "Op", 45, "center"),
             ("wc", "Work center", 90, "center"),
-            ("wc_desc", "Description", 170, "w"),
+            ("wc_desc", "Description", 230, "w"),
             ("rate_ind", "Rate ind", 60, "center"),
             ("run", "Run time", 78, "e"),
             ("cycle", "Ciclo", 78, "e"),
@@ -302,10 +310,10 @@ class EstimacionesApp(tk.Tk):
             ("startup", "Startup time", 88, "e"),
             ("teardown", "Teardown time", 98, "e"),
             ("sub", "Sub-contracted", 98, "e"),
-            ("labor", "Labor and set-up", 112, "e"),
-            ("fixed", "Fixed overhead", 105, "e"),
-            ("variable", "Variable overhead", 115, "e"),
-            ("total", "Total cost", 90, "e"),
+            ("labor", "Labor and set-up", 132, "e"),
+            ("fixed", "Fixed overhead", 122, "e"),
+            ("variable", "Variable overhead", 132, "e"),
+            ("total", "Total cost", 100, "e"),
         ]:
             self.operations.heading(key, text=title)
             self.operations.column(key, width=width, anchor=anchor)
@@ -446,10 +454,10 @@ class EstimacionesApp(tk.Tk):
         for idx, (title, variable) in enumerate(
             [
                 ("Material", self.material_var),
-                ("Labor\nand set-up", self.labor_var),
-                ("Fixed\nOverhead", self.fixed_var),
-                ("Variable\nOverhead", self.variable_var),
-                ("Total\ncost", self.total_var),
+                ("Labor and set-up", self.labor_var),
+                ("Fixed Overhead", self.fixed_var),
+                ("Variable Overhead", self.variable_var),
+                ("Total cost", self.total_var),
             ]
         ):
             block = tk.Frame(costbar, bg="#d8e6fb")
@@ -462,7 +470,7 @@ class EstimacionesApp(tk.Tk):
                 text=title,
                 bg="#d8e6fb",
                 fg=TEXT_DARK,
-                font=("Segoe UI", 10, "bold"),
+                font=("Segoe UI", 9, "bold"),
                 anchor="center",
                 justify="center",
             ).grid(row=0, column=0, sticky="nsew", padx=6, pady=(10, 0))
@@ -526,6 +534,12 @@ class EstimacionesApp(tk.Tk):
 
     def _clean_report_zeros(self, report: str) -> str:
         return re.sub(r"(?<!\d)-?0\.0{3,6}(?!\d)", lambda match: " " * len(match.group(0)), report)
+
+    def _format_help_summary(self, text: str) -> str:
+        sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", text.strip()) if part.strip()]
+        if not sentences:
+            return ""
+        return "\n\n".join(textwrap.fill(sentence, width=98) for sentence in sentences)
 
     def _load_tree(self) -> None:
         for item in self.tree.get_children():
@@ -593,6 +607,51 @@ class EstimacionesApp(tk.Tk):
                 ],
             },
             {
+                "title": "Criterio SYSPRO",
+                "summary": "Esta sección deja la lectura de lote y costo en lenguaje de negocio: primero se define la escala, luego se reparte el consumo y al final se suma el costo operativo por nivel.",
+                "rows": [
+                    ("Lote estimación", "Escala", "Cantidad base usada para analizar el padre o el nodo actual."),
+                    ("EBQ", "Referencia", "Tamaño de lote que SYSPRO usa como punto de comparación del nodo."),
+                    ("QtyPer", "Consumo", "Cuánto necesita el padre de ese componente para producir su salida."),
+                    ("ScrapQuantity", "Merma", "Consumo adicional que se reparte sobre el lote de referencia."),
+                    ("ScrapPercentage", "Merma %", "Ajuste porcentual sobre la cantidad ya calculada."),
+                    ("FixedQtyPerFlag", "Regla", "Si está activo, la cantidad fija reemplaza el consumo variable."),
+                    ("Route 0", "Referencia", "Ruta base usada para comparar la estructura."),
+                    ("Mass", "Conversión", "Convierte cada nodo a kilos para validar la producción física."),
+                    ("Multinivel", "Lectura", "Cada hijo hereda la necesidad del padre y se vuelve a medir en su propio nivel."),
+                ],
+            },
+            {
+                "title": "Caso de uso 9320000432",
+                "summary": "Este caso se usa como ejemplo de trabajo para entender cómo el motor busca el padre, arma el árbol, lee la ruta, calcula el lote y muestra el costo. Sirve como referencia para revisar el comportamiento de estimación y costeo paso a paso.",
+                "rows": [
+                    ("Buscar", "ParentPart", "Se toma el código 9320000432 como punto de partida."),
+                    ("Leer maestro", "InvMaster", "El sistema carga descripción, UDM, Mass, EBQ y Warehouse."),
+                    ("Fijar ruta", "Route 0", "Se usa la ruta base para comparar la estructura."),
+                    ("Explorar BOM", "BomStructure", "Se leen los hijos y la cantidad que cada uno aporta al padre."),
+                    ("Calcular lote", "Escala", "El lote del padre define la base del escenario."),
+                    ("Convertir a kilos", "Mass", "El lote se traduce a kilos para validar la producción física."),
+                    ("Costear operaciones", "BomOperations/BomWorkCentre", "Se suman tiempos y tasas para labor y overhead."),
+                    ("Mostrar jerarquía", "Reporte", "El árbol presenta padre, hijos y costos para revisión visual."),
+                    ("Validar", "Resultado", "El total del escenario debe explicar el costo por nivel sin perder trazabilidad."),
+                ],
+            },
+            {
+                "title": "Caso de uso 9320000432",
+                "summary": "Este ejemplo muestra como trabaja el motor desde que busca el padre hasta que entrega el costo final. Sirve para que el contador vea el metodo completo: padre, hijos, lote, kilos, operaciones y total.",
+                "rows": [
+                    ("1. Buscar", "ParentPart", "Se toma 9320000432 como codigo de prueba."),
+                    ("2. Leer maestro", "InvMaster", "Se cargan descripcion, UDM, Mass, EBQ y Warehouse."),
+                    ("3. Leer ruta", "Route 0", "Se usa la ruta base para comparar la estructura."),
+                    ("4. Leer BOM", "BomStructure", "Se identifican hijos y consumos por nivel."),
+                    ("5. Calcular lote", "Lote estimacion", "El lote del padre define la escala de trabajo."),
+                    ("6. Pasar a kilos", "Mass", "El lote se convierte a kilos para validar la produccion."),
+                    ("7. Cargar operaciones", "BomOperations", "Se suman tiempos y tasas del centro de trabajo."),
+                    ("8. Ver jerarquia", "Reporte", "Se revisa el arbol de padre, hijos y costos."),
+                    ("9. Validar", "Resultado", "El total debe explicar el costo sin perder trazabilidad."),
+                ],
+            },
+            {
                 "title": "Estimación",
                 "summary": "El árbol presenta el ParentPart, sus componentes, subcomponentes y operaciones. Con Maintain hierarchies activado se expande el detalle visual de hijos y nietos.",
                 "rows": [
@@ -639,13 +698,50 @@ class EstimacionesApp(tk.Tk):
             },
             {
                 "title": "Jerarquía",
-                "summary": "Jerarquía muestra en pantalla el reporte textual del árbol o del What-if según el modo activo. Sirve para documentar el detalle del costo y revisar cómo se compone el ParentPart.",
+                "summary": "Jerarquía muestra en pantalla el reporte textual del árbol o del What-if según el modo activo. Sirve para leer de un vistazo el padre, sus hijos, el lote, los kilos y el costo acumulado por nivel.",
                 "rows": [
                     ("Prepared / Version", "Cabecera", "Datos del reporte textual."),
                     ("Component", "Detalle", "Lista de componentes y costos."),
                     ("Work center", "Detalle", "Lista de operaciones y tasas."),
                     ("Total what-if cost", "Resultado", "Total oficial del escenario actual."),
                     ("Imprimir", "Botón", "Abre el diálogo de impresora y envía el texto del reporte."),
+                ],
+            },
+            {
+                "title": "Motor paso a paso",
+                "summary": "El motor trabaja en este orden: lee el maestro, trae BOM y operaciones, arma el escenario editable y luego distribuye el costo total entre material, labor y overhead. Con Maintain hierarchies activado el mismo resultado se muestra expandido por niveles.",
+                "rows": [
+                    ("1", "Lectura", "InvMaster, BomStructure, BomOperations y BomWorkCentre."),
+                    ("2", "Escala", "El lote visible define la escala del escenario."),
+                    ("3", "Consumo", "QtyPer, scrap y factores de lote determinan la cantidad efectiva."),
+                    ("4", "Costo", "El motor separa material, labor, fixed OH y variable OH."),
+                    ("5", "Vista", "El Ã¡rbol, el resumen y las grillas quedan sincronizados."),
+                ],
+            },
+            {
+                "title": "Caso 9320000432 - Resumen",
+                "summary": "El caso 9320000432 no es un costo fijo: es el ejemplo de arranque que el formulario usa para mostrar el flujo completo del motor. El resultado depende del maestro y del escenario visible, no de una tabla manual.",
+                "rows": [
+                    ("1. Buscar", "ParentPart", "Se toma 9320000432 como cÃ³digo base."),
+                    ("2. Leer maestro", "InvMaster", "Se cargan Description, UDM, Mass, EBQ y WarehouseToUse."),
+                    ("3. Leer ruta", "Route", "Se usa la ruta visible, normalmente Route 0."),
+                    ("4. Leer BOM", "BomStructure", "Se extraen componentes, consumos y niveles."),
+                    ("5. Leer operaciones", "BomOperations", "Se extraen work center, tiempos y tasas."),
+                    ("6. Aplicar lote", "Lote estimaciÃ³n", "El lote visible cambia la escala del cÃ¡lculo."),
+                    ("7. Repartir", "Motor", "El total se distribuye entre Material, Labor, Fixed OH y Variable OH."),
+                    ("8. Pintar", "Interfaz", "Se refrescan Ã¡rbol, grillas y resumen superior."),
+                    ("9. Validar", "Resultado", "El reporte textual y la pantalla deben coincidir."),
+                ],
+            },
+            {
+                "title": "Flujo completo",
+                "summary": "Este bloque resume el flujo prÃ¡ctico para trabajar sin perder trazabilidad: abrir el padre, revisar el detalle, editar lo necesario, recalcular y comparar con el reporte.",
+                "rows": [
+                    ("Paso 1", "Carga", "Ingresa o confirma el ParentPart."),
+                    ("Paso 2", "Detalle", "Revisa el maestro, el Ã¡rbol y las grillas."),
+                    ("Paso 3", "EdiciÃ³n", "Cambia lote, componentes, operaciones o reglas masivas."),
+                    ("Paso 4", "Recalculo", "Pulsa Estimar para sincronizar todo."),
+                    ("Paso 5", "VerificaciÃ³n", "Abre JerarquÃ­a o imprime el reporte para validar."),
                 ],
             },
             {
@@ -674,7 +770,7 @@ class EstimacionesApp(tk.Tk):
             },
             {
                 "title": "Aplicación",
-                "summary": "Flujo recomendado de trabajo y prueba para el usuario cotizador.",
+                "summary": "Flujo recomendado de trabajo y prueba para el usuario cotizador. Pensado para lectura contable y validación funcional antes de enviar el caso a SYSPRO.",
                 "rows": [
                     ("1", "Cargar", "Cargar el ParentPart."),
                     ("2", "Base", "Revisar el costo base."),
@@ -682,6 +778,55 @@ class EstimacionesApp(tk.Tk):
                     ("4", "Editar", "Editar componentes u operaciones o aplicar una regla masiva."),
                     ("5", "Verificar", "Confirmar el nuevo total y el impacto por nodo."),
                     ("6", "Documentar", "Usar Jerarquía e imprimir si necesitas evidencia."),
+                ],
+            },
+            {
+                "title": "Motor detallado",
+                "summary": "La lÃ³gica del motor es: costo de componentes + costo de operaciones. Para cada componente se toma QtyPer y se ajusta por lote, merma o regla; para cada operaciÃ³n se reparten tiempos y tasas sobre el EBQ visible.",
+                "rows": [
+                    ("FÃ³rmula base", "Escenario", "Total = Material + Labor + Fixed OH + Variable OH."),
+                    ("Material", "BOM", "Cantidad efectiva x costo unitario del componente."),
+                    ("Labor", "Operaciones", "Run time x tasa de labor + setups y arrancadas prorrateadas."),
+                    ("Fixed OH", "Operaciones", "Carga fija prorrateada por lote/EBQ."),
+                    ("Variable OH", "Operaciones", "Carga variable prorrateada por lote/EBQ."),
+                    ("JerarquÃ­a", "Vista", "Cada hijo repite el mismo esquema en su nivel."),
+                ],
+            },
+            {
+                "title": "Caso 9320000432",
+                "summary": "El caso 9320000432 se calcula leyendo el maestro del padre y recorriendo la BOM/operaciones asociadas. La pantalla usa ese cÃ³digo como referencia de arranque, pero el costo final depende del lote visible y de los datos reales cargados en SYSPRO.",
+                "rows": [
+                    ("Entrada", "9320000432", "Se carga como ParentPart por defecto."),
+                    ("Maestro", "InvMaster", "Se toman Description, UDM, Mass, EBQ y Warehouse."),
+                    ("Ruta", "Route", "Se usa la ruta elegida, normalmente Route 0."),
+                    ("BOM", "BomStructure", "Se identifican componentes, cantidad por lote y niveles."),
+                    ("Operaciones", "BomOperations", "Se identifican work centers, tiempos y tasas."),
+                    ("CÃ¡lculo", "Motor", "Se corre el mismo reparto: material + labor + overheads."),
+                    ("ValidaciÃ³n", "Reporte", "Se compara la pantalla contra la jerarquÃ­a textual."),
+                ],
+            },
+            {
+                "title": "CÃ³mo se calcula",
+                "summary": "Paso a paso: el motor toma el lote visible, lo compara con el EBQ, calcula el consumo efectivo de cada componente, agrega scrap si existe y despuÃ©s suma el costo operativo por centro de trabajo.",
+                "rows": [
+                    ("1", "Lote", "Se usa el valor visible en Lote estimaciÃ³n."),
+                    ("2", "Consumo", "Cada componente recibe su QtyPer efectivo."),
+                    ("3", "Merma", "ScrapQuantity y ScrapPercentage ajustan el consumo."),
+                    ("4", "OperaciÃ³n", "Run, setup, startup y teardown se convierten en costo."),
+                    ("5", "Centro", "Las tasas del work center se toman por Rate ind."),
+                    ("6", "Total", "La suma final se refleja en el resumen superior."),
+                ],
+            },
+            {
+                "title": "AplicaciÃ³n",
+                "summary": "Flujo recomendado de trabajo y prueba para el usuario cotizador. Pensado para lectura contable y validaciÃ³n funcional antes de enviar el caso a SYSPRO.",
+                "rows": [
+                    ("1", "Cargar", "Cargar el ParentPart."),
+                    ("2", "Base", "Revisar el costo base."),
+                    ("3", "JerarquÃ­a", "Activar jerarquÃ­a si necesitas detalle del Ã¡rbol."),
+                    ("4", "Editar", "Editar componentes u operaciones o aplicar una regla masiva."),
+                    ("5", "Verificar", "Confirmar el nuevo total y el impacto por nodo."),
+                    ("6", "Documentar", "Usar JerarquÃ­a e imprimir si necesitas evidencia."),
                 ],
             },
         ]
@@ -695,8 +840,8 @@ class EstimacionesApp(tk.Tk):
 
         window = tk.Toplevel(self)
         window.title("Ayuda Estimaciones")
-        window.geometry("1260x760")
-        window.minsize(1040, 680)
+        window.geometry("1480x840")
+        window.minsize(1280, 720)
         window.configure(bg="#f7fbff")
         window.transient(self)
         self.help_window = window
@@ -758,7 +903,7 @@ class EstimacionesApp(tk.Tk):
         body.grid_columnconfigure(1, weight=1)
         body.grid_rowconfigure(0, weight=1)
 
-        left = tk.Frame(body, bg="#edf7e7", relief="solid", bd=1, width=225)
+        left = tk.Frame(body, bg="#edf7e7", relief="solid", bd=1, width=255)
         left.grid(row=0, column=0, sticky="nsw")
         left.grid_propagate(False)
         left.grid_rowconfigure(3, weight=1)
@@ -779,25 +924,34 @@ class EstimacionesApp(tk.Tk):
 
         section_list = tk.Listbox(
             nav_host,
-            font=("Segoe UI", 8),
+            font=("Segoe UI", 10, "bold"),
             activestyle="none",
             bd=0,
             highlightthickness=0,
             exportselection=False,
+            bg="#edf7e7",
+            fg="#274227",
+            selectbackground="#0b9f1a",
+            selectforeground="white",
+            relief="flat",
+            highlightcolor="#edf7e7",
+            highlightbackground="#edf7e7",
         )
         section_list.grid(row=0, column=0, sticky="nsew")
 
         center = tk.Frame(body, bg="white", relief="solid", bd=1)
         center.grid(row=0, column=1, sticky="nsew")
         center.grid_columnconfigure(0, weight=1)
-        center.grid_rowconfigure(3, weight=1)
+        center.grid_rowconfigure(4, weight=1)
+
+        subtitle_var = tk.StringVar(value="Guía práctica del motor de cálculo")
 
         tk.Label(
             center,
             text="Quotations > Quotations Processing > Estimates",
             bg="white",
             fg="#5d7992",
-            font=("Segoe UI", 9),
+            font=("Segoe UI", 10),
             anchor="w",
             padx=14,
             pady=10,
@@ -809,17 +963,39 @@ class EstimacionesApp(tk.Tk):
             textvariable=title_var,
             bg="white",
             fg="#111111",
-            font=("Segoe UI", 20, "bold"),
+            font=("Segoe UI", 22, "bold"),
             anchor="w",
             padx=14,
         ).grid(row=1, column=0, sticky="ew")
 
-        summary_box = tk.Text(center, wrap="word", font=("Segoe UI", 10), relief="flat", bd=0, height=7)
-        summary_box.grid(row=2, column=0, sticky="ew", padx=14, pady=(0, 10))
-        summary_box.configure(bg="white", fg="#1a1a1a", padx=4, pady=4)
+        tk.Label(
+            center,
+            textvariable=subtitle_var,
+            bg="white",
+            fg="#446488",
+            font=("Segoe UI", 10, "bold"),
+            anchor="w",
+            padx=14,
+            pady=2,
+        ).grid(row=2, column=0, sticky="ew")
+
+        summary_box = tk.Text(
+            center,
+            wrap="word",
+            font=("Segoe UI", 11),
+            relief="flat",
+            bd=0,
+            height=7,
+            spacing1=4,
+            spacing2=2,
+            spacing3=8,
+            cursor="arrow",
+        )
+        summary_box.grid(row=3, column=0, sticky="ew", padx=14, pady=(0, 10))
+        summary_box.configure(bg="#fbfcfe", fg="#1a1a1a", padx=8, pady=8, selectbackground="#d9e9f7")
 
         details_host = tk.Frame(center, bg="white")
-        details_host.grid(row=3, column=0, sticky="nsew", padx=14, pady=(0, 14))
+        details_host.grid(row=4, column=0, sticky="nsew", padx=14, pady=(0, 14))
         details_host.grid_rowconfigure(1, weight=1)
         details_host.grid_columnconfigure(0, weight=1)
 
@@ -828,7 +1004,7 @@ class EstimacionesApp(tk.Tk):
             text="Estimates",
             bg="white",
             fg="#111111",
-            font=("Segoe UI", 13, "bold"),
+            font=("Segoe UI", 14, "bold"),
             anchor="w",
         ).grid(row=0, column=0, sticky="ew", pady=(0, 6))
 
@@ -839,19 +1015,21 @@ class EstimacionesApp(tk.Tk):
             style="Syspro.Treeview",
             height=18,
         )
-        details.heading("field", text="Field")
-        details.heading("value", text="Value")
-        details.heading("description", text="Description")
-        details.column("field", width=180, anchor="w")
-        details.column("value", width=170, anchor="w")
-        details.column("description", width=680, anchor="w")
+        details.heading("field", text="FIELD")
+        details.heading("value", text="VALUE")
+        details.heading("description", text="DESCRIPTION")
+        details.column("field", width=210, anchor="w")
+        details.column("value", width=190, anchor="w")
+        details.column("description", width=860, anchor="w")
+        details.tag_configure("base", background="#f9fbfd", foreground="#111111", font=("Segoe UI", 9))
+        details.tag_configure("alt", background="#eef4fb", foreground="#111111", font=("Segoe UI", 9))
         details.grid(row=1, column=0, sticky="nsew")
 
         detail_scroll = ttk.Scrollbar(details_host, orient="vertical", command=details.yview)
         detail_scroll.grid(row=1, column=1, sticky="ns")
         details.configure(yscrollcommand=detail_scroll.set)
 
-        right = tk.Frame(body, bg="#f7fbff", width=255)
+        right = tk.Frame(body, bg="#f7fbff", width=280)
         right.grid(row=0, column=2, sticky="nse")
         right.grid_propagate(False)
 
@@ -859,7 +1037,7 @@ class EstimacionesApp(tk.Tk):
         task_box.pack(fill="both", expand=True, padx=(10, 12), pady=20)
         tk.Label(
             task_box,
-            text="Tasks",
+            text="Contents",
             bg="#dceccf",
             fg="#274227",
             font=("Segoe UI", 10, "bold"),
@@ -883,7 +1061,7 @@ class EstimacionesApp(tk.Tk):
                 text=f"›  {task}",
                 bg="#f9fff1",
                 fg="#223922",
-                font=("Segoe UI", 9),
+                font=("Segoe UI", 10),
                 anchor="w",
                 padx=10,
                 pady=2,
@@ -896,9 +1074,24 @@ class EstimacionesApp(tk.Tk):
         def render(index: int) -> None:
             topic = sections[index]
             title_var.set(str(topic["title"]))
+            subtitle_map = {
+                "Resumen": "Vista general de lectura",
+                "Motor detallado": "Fórmula de cálculo y reparto",
+                "Caso 9320000432 - Resumen": "Ejemplo funcional del arranque",
+                "Caso 9320000432": "Lectura del padre, BOM y operaciones",
+                "Cómo se calcula": "Paso a paso del motor",
+                "Flujo completo": "Secuencia operativa",
+                "Estimar": "Recalculo del escenario visible",
+                "Componentes": "Lectura de materiales",
+                "Operaciones": "Lectura de tiempos y tasas",
+                "Jerarquía": "Reporte textual del árbol",
+                "Actualizar": "Regla masiva por ProductClass",
+                "Aplicación": "Uso recomendado",
+            }
+            subtitle_var.set(subtitle_map.get(str(topic["title"]), "Guía práctica del motor de cálculo"))
             summary_box.configure(state="normal")
             summary_box.delete("1.0", "end")
-            summary_box.insert("1.0", str(topic["summary"]))
+            summary_box.insert("1.0", self._format_help_summary(str(topic["summary"])))
             summary_box.configure(state="disabled")
 
             for item in details.get_children():
@@ -925,7 +1118,7 @@ class EstimacionesApp(tk.Tk):
         section_list.focus_set()
         return "break"
 
-    def _select_windows_printer(self) -> tuple[str, str, str] | None:
+    def _select_windows_printer(self) -> tuple[str, str, str, int] | None:
         if os.name != "nt":
             messagebox.showinfo("Imprimir", "La selección de impresora solo está implementada para Windows.")
             return None
@@ -980,6 +1173,7 @@ class EstimacionesApp(tk.Tk):
                 messagebox.showerror("Imprimir", f"No fue posible abrir el diálogo de impresión ({error_code}).")
             return None
 
+        hdc = 0
         try:
             if not print_dlg.hDevNames:
                 return None
@@ -993,6 +1187,8 @@ class EstimacionesApp(tk.Tk):
                 driver = ctypes.wstring_at(locked + devnames.wDriverOffset * wchar_size)
                 device = ctypes.wstring_at(locked + devnames.wDeviceOffset * wchar_size)
                 output = ctypes.wstring_at(locked + devnames.wOutputOffset * wchar_size)
+                hdc = int(print_dlg.hDC or 0)
+                print_dlg.hDC = 0
             finally:
                 ctypes.windll.kernel32.GlobalUnlock(print_dlg.hDevNames)
         finally:
@@ -1003,34 +1199,314 @@ class EstimacionesApp(tk.Tk):
             if print_dlg.hDevNames:
                 ctypes.windll.kernel32.GlobalFree(print_dlg.hDevNames)
 
-        return device, driver, output
+        return device, driver, output, hdc
+
+    def _is_report_header_line(self, line: str) -> bool:
+        text = line.strip()
+        if not text:
+            return False
+        header_prefixes = (
+            "Prepared :",
+            "Version  :",
+            "Stock code",
+            "Hierarchy detail",
+            "Op   Work center",
+            "Component",
+            "Work center Description",
+            "Cost of components",
+            "Cost of operations",
+            "Total what-if cost",
+            "B.O.M. cost",
+            "End of report",
+        )
+        return text.startswith(header_prefixes)
+
+    def _insert_report_text(self, viewer: scrolledtext.ScrolledText, report: str) -> None:
+        viewer.tag_configure("header", font=("Consolas", 8, "bold"))
+        for line in report.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+            tag = "header" if self._is_report_header_line(line) else None
+            if tag:
+                viewer.insert("end", line + "\n", tag)
+            else:
+                viewer.insert("end", line + "\n")
+
+    def _print_text_to_dc(self, hdc: int, report: str) -> None:
+        if not hdc:
+            raise RuntimeError("No se obtuvo un contexto de impresion valido.")
+
+        class DOCINFOW(ctypes.Structure):
+            _fields_ = [
+                ("cbSize", ctypes.c_int),
+                ("lpszDocName", ctypes.c_wchar_p),
+                ("lpszOutput", ctypes.c_wchar_p),
+                ("lpszDatatype", ctypes.c_wchar_p),
+                ("fwType", ctypes.c_int),
+            ]
+
+        class TEXTMETRICW(ctypes.Structure):
+            _fields_ = [
+                ("tmHeight", ctypes.c_long),
+                ("tmAscent", ctypes.c_long),
+                ("tmDescent", ctypes.c_long),
+                ("tmInternalLeading", ctypes.c_long),
+                ("tmExternalLeading", ctypes.c_long),
+                ("tmAveCharWidth", ctypes.c_long),
+                ("tmMaxCharWidth", ctypes.c_long),
+                ("tmWeight", ctypes.c_long),
+                ("tmOverhang", ctypes.c_long),
+                ("tmDigitizedAspectX", ctypes.c_long),
+                ("tmDigitizedAspectY", ctypes.c_long),
+                ("tmFirstChar", ctypes.c_wchar),
+                ("tmLastChar", ctypes.c_wchar),
+                ("tmDefaultChar", ctypes.c_wchar),
+                ("tmBreakChar", ctypes.c_wchar),
+                ("tmItalic", ctypes.c_byte),
+                ("tmUnderlined", ctypes.c_byte),
+                ("tmStruckOut", ctypes.c_byte),
+                ("tmPitchAndFamily", ctypes.c_byte),
+                ("tmCharSet", ctypes.c_byte),
+            ]
+
+        gdi32 = ctypes.windll.gdi32
+        docinfo = DOCINFOW()
+        docinfo.cbSize = ctypes.sizeof(DOCINFOW)
+        docinfo.lpszDocName = "Estimaciones"
+        docinfo.lpszDatatype = None
+        docinfo.lpszOutput = None
+        docinfo.fwType = 0
+
+        start_doc = gdi32.StartDocW
+        start_doc.argtypes = [ctypes.c_void_p, ctypes.POINTER(DOCINFOW)]
+        start_doc.restype = ctypes.c_int
+        start_page = gdi32.StartPage
+        start_page.argtypes = [ctypes.c_void_p]
+        start_page.restype = ctypes.c_int
+        end_page = gdi32.EndPage
+        end_page.argtypes = [ctypes.c_void_p]
+        end_page.restype = ctypes.c_int
+        end_doc = gdi32.EndDoc
+        end_doc.argtypes = [ctypes.c_void_p]
+        end_doc.restype = ctypes.c_int
+        text_out = gdi32.TextOutW
+        text_out.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_wchar_p, ctypes.c_int]
+        text_out.restype = ctypes.c_bool
+        delete_dc = gdi32.DeleteDC
+        delete_dc.argtypes = [ctypes.c_void_p]
+        delete_dc.restype = ctypes.c_bool
+        create_font = gdi32.CreateFontW
+        create_font.restype = ctypes.c_void_p
+
+        get_device_caps = gdi32.GetDeviceCaps
+        get_device_caps.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        get_device_caps.restype = ctypes.c_int
+
+        get_text_metrics = gdi32.GetTextMetricsW
+        get_text_metrics.argtypes = [ctypes.c_void_p, ctypes.POINTER(TEXTMETRICW)]
+        get_text_metrics.restype = ctypes.c_bool
+
+        select_object = gdi32.SelectObject
+        select_object.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        select_object.restype = ctypes.c_void_p
+
+        delete_object = gdi32.DeleteObject
+        delete_object.argtypes = [ctypes.c_void_p]
+        delete_object.restype = ctypes.c_bool
+
+        VERTRES = 10
+        old_font = None
+        normal_font = None
+        bold_font = None
+        started = False
+        try:
+            if start_doc(hdc, ctypes.byref(docinfo)) <= 0:
+                raise RuntimeError("No fue posible iniciar la impresion.")
+            started = True
+            if start_page(hdc) <= 0:
+                raise RuntimeError("No fue posible iniciar la pagina de impresion.")
+
+            normal_font = create_font(-18, 0, 0, 0, 400, 0, 0, 0, 0, 0, 0, 0, 0, "Consolas")
+            bold_font = create_font(-18, 0, 0, 0, 700, 0, 0, 0, 0, 0, 0, 0, 0, "Consolas")
+            if normal_font:
+                old_font = select_object(hdc, normal_font)
+
+            metrics = TEXTMETRICW()
+            if not get_text_metrics(hdc, ctypes.byref(metrics)):
+                line_height = 18
+            else:
+                line_height = max(18, int(metrics.tmHeight + metrics.tmExternalLeading))
+
+            page_height = max(1, get_device_caps(hdc, VERTRES))
+            left_margin = 80
+            top_margin = 80
+            y = top_margin
+            for raw_line in report.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+                line = raw_line[:300]
+                if y + line_height > page_height - top_margin:
+                    if end_page(hdc) <= 0:
+                        raise RuntimeError("No fue posible avanzar a la siguiente pagina.")
+                    if start_page(hdc) <= 0:
+                        raise RuntimeError("No fue posible continuar la impresion.")
+                    y = top_margin
+                selected_font = bold_font if self._is_report_header_line(line) and bold_font else normal_font
+                if selected_font:
+                    select_object(hdc, selected_font)
+                if not text_out(hdc, left_margin, y, line, len(line)):
+                    raise RuntimeError("No fue posible dibujar el texto en la impresora.")
+                y += line_height
+
+            if end_page(hdc) <= 0:
+                raise RuntimeError("No fue posible cerrar la pagina de impresion.")
+            if end_doc(hdc) <= 0:
+                raise RuntimeError("No fue posible finalizar la impresion.")
+        finally:
+            if old_font:
+                select_object(hdc, old_font)
+            if normal_font:
+                delete_object(normal_font)
+            if bold_font:
+                delete_object(bold_font)
+            if started:
+                pass
+            delete_dc(hdc)
+
+    def _printer_needs_save_path(self, printer_name: str, driver_name: str, output_name: str) -> bool:
+        text = f"{printer_name} {driver_name} {output_name}".lower()
+        return "pdf" in text
+
+    def _escape_pdf_text(self, value: str) -> str:
+        return (
+            value.replace("\\", "\\\\")
+            .replace("(", "\\(")
+            .replace(")", "\\)")
+            .replace("\r", "")
+        )
+
+    def _write_text_pdf(self, path: Path, title: str, report: str) -> None:
+        page_width = 792
+        page_height = 612
+        left_margin = 30
+        top_margin = 28
+        bottom_margin = 28
+        font_size = 8
+        line_height = 10
+        usable_width = 732
+        chars_per_line = max(40, int(usable_width / (font_size * 0.55)))
+        lines: list[tuple[str, bool]] = []
+        for raw_line in report.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+            is_header = self._is_report_header_line(raw_line)
+            wrapped = textwrap.wrap(
+                raw_line,
+                width=chars_per_line,
+                replace_whitespace=False,
+                drop_whitespace=False,
+            )
+            if wrapped:
+                lines.extend((line, is_header) for line in wrapped)
+            else:
+                lines.append(("", is_header))
+
+        lines_per_page = max(1, (page_height - top_margin - bottom_margin) // line_height)
+        pages = [lines[i : i + lines_per_page] for i in range(0, len(lines), lines_per_page)] or [[]]
+
+        objects: dict[int, bytes] = {
+            1: b"<< /Type /Catalog /Pages 2 0 R >>",
+            3: b"<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>",
+            4: b"<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Bold >>",
+        }
+
+        page_numbers: list[int] = []
+        current_object = 5
+        for page_lines in pages:
+            y = page_height - top_margin
+            stream_lines = [
+                "BT",
+                f"/F1 {font_size} Tf",
+            ]
+            for line, is_header in page_lines:
+                stream_lines.append(f"/{'F2' if is_header else 'F1'} {font_size} Tf")
+                stream_lines.append(f"1 0 0 1 {left_margin} {y} Tm")
+                stream_lines.append(f"({self._escape_pdf_text(line)}) Tj")
+                y -= line_height
+            stream_lines.append("ET")
+            content_stream = "\n".join(stream_lines).encode("utf-8")
+            content_num = current_object
+            page_num = current_object + 1
+            objects[content_num] = (
+                b"<< /Length "
+                + str(len(content_stream)).encode("ascii")
+                + b" >>\nstream\n"
+                + content_stream
+                + b"\nendstream"
+            )
+            objects[page_num] = (
+                b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 "
+                + f"{page_width} {page_height}".encode("ascii")
+                + b"] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents "
+                + str(content_num).encode("ascii")
+                + b" 0 R >>"
+            )
+            page_numbers.append(page_num)
+            current_object += 2
+
+        objects[2] = (
+            b"<< /Type /Pages /Kids ["
+            + " ".join(f"{page_num} 0 R" for page_num in page_numbers).encode("ascii")
+            + b"] /Count "
+            + str(len(page_numbers)).encode("ascii")
+            + b" >>"
+        )
+
+        pdf_objects = [objects[index] for index in range(1, max(objects) + 1)]
+
+        buffer = bytearray()
+        buffer.extend(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+        offsets: list[int] = [0]
+        for index, body in enumerate(pdf_objects, start=1):
+            offsets.append(len(buffer))
+            buffer.extend(f"{index} 0 obj\n".encode("ascii"))
+            buffer.extend(body)
+            buffer.extend(b"\nendobj\n")
+
+        xref_offset = len(buffer)
+        total_objects = len(pdf_objects)
+        buffer.extend(f"xref\n0 {total_objects + 1}\n".encode("ascii"))
+        buffer.extend(b"0000000000 65535 f \n")
+        for offset in offsets[1:]:
+            buffer.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+        buffer.extend(
+            (
+                "trailer\n"
+                f"<< /Size {total_objects + 1} /Root 1 0 R /Info << /Title ({self._escape_pdf_text(title)}) >> >>\n"
+                f"startxref\n{xref_offset}\n%%EOF\n"
+            ).encode("utf-8")
+        )
+        path.write_bytes(bytes(buffer))
 
     def _print_text_report(self, report: str) -> None:
         printer = self._select_windows_printer()
         if printer is None:
             return
 
-        printer_name, driver_name, output_name = printer
-        temp_path = None
+        printer_name, _driver_name, _output_name, hdc = printer
         try:
-            with tempfile.NamedTemporaryFile("w", delete=False, suffix=".txt", encoding="utf-8-sig") as handle:
-                handle.write(report)
-                temp_path = handle.name
-
-            completed = subprocess.run(
-                ["notepad.exe", "/pt", temp_path, printer_name, driver_name, output_name],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if completed.returncode != 0:
-                raise RuntimeError((completed.stderr or completed.stdout or "No fue posible imprimir el reporte.").strip())
-            self.status_var.set(f"Reporte enviado a impresión en {printer_name}.")
+            if self._printer_needs_save_path(printer_name, _driver_name, _output_name):
+                default_name = f"Jerarquia_{self.parent_part_var.get().strip()}.pdf"
+                save_path = filedialog.asksaveasfilename(
+                    parent=self,
+                    title="Guardar reporte en PDF",
+                    defaultextension=".pdf",
+                    initialfile=default_name,
+                    filetypes=[("PDF", "*.pdf")],
+                )
+                if not save_path:
+                    return
+                self._write_text_pdf(Path(save_path), f"Jerarquía - {self.parent_part_var.get().strip()}", report)
+                self.status_var.set(f"Reporte guardado en {save_path}.")
+            else:
+                self._print_text_to_dc(hdc, report)
+                self.status_var.set(f"Reporte enviado a impresión en {printer_name}.")
         except Exception as exc:
             messagebox.showerror("Imprimir", str(exc))
-        finally:
-            if temp_path:
-                self.after(20000, lambda path=temp_path: Path(path).unlink(missing_ok=True))
 
     def _set_loading_state(self, loading: bool) -> None:
         state = "disabled" if loading else "normal"
@@ -1046,7 +1522,9 @@ class EstimacionesApp(tk.Tk):
         window = tk.Toplevel(self)
         window.title(title)
         window.transient(self)
-        window.resizable(False, False)
+        window.geometry("1060x640")
+        window.minsize(980, 600)
+        window.resizable(True, True)
         window.configure(bg="#f4f8ff")
         window.protocol("WM_DELETE_WINDOW", lambda: None)
 
@@ -1180,6 +1658,7 @@ class EstimacionesApp(tk.Tk):
                 f"{str(master.get('Description', '') or '').strip()}"
             ).strip(),
             values=(str(master.get("StockUom", "") or "").strip(), "Nodo padre", self.total_var.get()),
+            tags=("tree-parent",),
         )
 
         for index, comp in enumerate(components, start=1):
@@ -1195,6 +1674,7 @@ class EstimacionesApp(tk.Tk):
                     "Componente",
                     f"{float(self._item_value(comp, 'total', 0.0) or 0.0):.5f}",
                 ),
+                tags=("tree-component",),
             )
 
         for index, op in enumerate(operations, start=1):
@@ -1204,6 +1684,7 @@ class EstimacionesApp(tk.Tk):
                 iid=f"op-{index}",
                 text=f"Op : {self._item_value(op, 'operation', '')} - {self._item_value(op, 'work_centre', '')}",
                 values=("INT", "Operacion", f"{float(self._item_value(op, 'total', 0.0) or 0.0):.5f}"),
+                tags=("tree-operation",),
             )
 
         self.tree.selection_set(root_id)
@@ -1226,11 +1707,16 @@ class EstimacionesApp(tk.Tk):
             node_counter += 1
             return f"{prefix}-{node_counter}"
 
+        factor_by_stock_code: dict[str, float] = {}
+
         def hierarchy_total(comp: object) -> float:
             stock_code = str(getattr(comp, "stock_code", "") or "").strip()
             base_total = float(getattr(comp, "total", 0.0) or 0.0)
-            product_class = str(get_master(stock_code).get("ProductClass", "") or "").strip()
-            factor = self._rule_factor_for_product_class(product_class)
+            factor = factor_by_stock_code.get(stock_code)
+            if factor is None:
+                product_class = str(get_master(stock_code).get("ProductClass", "") or "").strip()
+                factor = self._rule_factor_for_product_class(product_class)
+                factor_by_stock_code[stock_code] = factor
             return self._r5(base_total * factor)
 
         def insert_children(parent_id: str, current_node: object) -> None:
@@ -1247,6 +1733,7 @@ class EstimacionesApp(tk.Tk):
                         "Subcomponente" if getattr(comp, "node", None) else "Componente",
                         self._fmt_num(hierarchy_total(comp), 5, blank_zero=False),
                     ),
+                    tags=("tree-subcomponent" if getattr(comp, "node", None) else "tree-component",),
                 )
                 child_node = getattr(comp, "node", None)
                 if child_node and (getattr(child_node, "components", None) or getattr(child_node, "operations", None)):
@@ -1267,6 +1754,7 @@ class EstimacionesApp(tk.Tk):
                         "Operacion",
                         self._fmt_num(getattr(op, 'total', 0.0), 5, blank_zero=False),
                     ),
+                    tags=("tree-operation",),
                 )
 
         text = (
@@ -1287,6 +1775,7 @@ class EstimacionesApp(tk.Tk):
                 "Nodo padre",
                 self._fmt_num(display_total, 5, blank_zero=False),
             ),
+            tags=("tree-parent",),
         )
 
         if root_components is not None:
@@ -1308,6 +1797,7 @@ class EstimacionesApp(tk.Tk):
                         "Componente",
                         self._fmt_num(self._item_value(flat_comp, "total", 0.0), 5, blank_zero=False),
                     ),
+                    tags=("tree-component",),
                 )
                 if child_node and (getattr(child_node, "components", None) or getattr(child_node, "operations", None)):
                     insert_children(comp_id, child_node)
@@ -1327,6 +1817,7 @@ class EstimacionesApp(tk.Tk):
                         "Operacion",
                         self._fmt_num(self._item_value(op, "total", 0.0), 5, blank_zero=False),
                     ),
+                    tags=("tree-operation",),
                 )
         else:
             insert_children(root_id, node)
@@ -1588,15 +2079,50 @@ class EstimacionesApp(tk.Tk):
                 pass
         self._scenario_recalc_after_id = self.after(delay_ms, self._apply_scenario_edits)
 
+    def _current_tree_context_key(self) -> tuple[str, str, float]:
+        return (
+            self.parent_part_var.get().strip(),
+            self._current_route(),
+            float(self._current_batch_qty()),
+        )
+
+    def _has_current_tree_context(self) -> bool:
+        try:
+            return self.current_tree_context == self._current_tree_context_key() and self.current_hierarchy_node is not None
+        except Exception:
+            return False
+
     def _on_hierarchy_toggle(self, *_args: object) -> None:
-        if self.scenario_components or self.scenario_operations:
+        if self._hierarchy_toggle_after_id is not None:
+            try:
+                self.after_cancel(self._hierarchy_toggle_after_id)
+            except tk.TclError:
+                pass
+            self._hierarchy_toggle_after_id = None
+        if not (self.scenario_components or self.scenario_operations):
+            return
+        self._hierarchy_toggle_after_id = self.after(120, self._apply_hierarchy_toggle)
+
+    def _apply_hierarchy_toggle(self) -> None:
+        self._hierarchy_toggle_after_id = None
+        if not (self.scenario_components or self.scenario_operations):
+            return
+        if not self.maintain_hierarchies_var.get():
             self._refresh_view_from_scenario()
+            return
+        if self._has_current_tree_context():
+            self._refresh_view_from_scenario()
+            return
+        self.status_var.set("Cargando jerarquia en segundo plano...")
+        self._on_estimate(silent=True)
 
     def _open_edit_dialog(self, title: str, fields: list[tuple[str, str, str]]) -> dict[str, str] | None:
         window = tk.Toplevel(self)
         window.title(title)
         window.transient(self)
-        window.resizable(False, False)
+        window.geometry("760x360")
+        window.minsize(700, 320)
+        window.resizable(True, True)
         window.configure(bg="#f4f8ff")
 
         values: dict[str, str] = {}
@@ -1608,7 +2134,7 @@ class EstimacionesApp(tk.Tk):
             tk.Label(body, text=label, bg="#f4f8ff", fg=TEXT_DARK, font=("Segoe UI", 8)).grid(
                 row=row, column=0, sticky="w", padx=(0, 8), pady=3
             )
-            entry = tk.Entry(body, width=32, font=("Segoe UI", 8), relief="solid", bd=1, bg=FIELD_BG)
+            entry = tk.Entry(body, width=48, font=("Segoe UI", 8), relief="solid", bd=1, bg=FIELD_BG)
             entry.insert(0, current)
             entry.grid(row=row, column=1, sticky="ew", pady=3)
             entries[key] = entry
@@ -1638,7 +2164,9 @@ class EstimacionesApp(tk.Tk):
         window = tk.Toplevel(self)
         window.title(title)
         window.transient(self)
-        window.resizable(False, False)
+        window.geometry("940x500")
+        window.minsize(860, 460)
+        window.resizable(True, True)
         window.configure(bg="#f4f8ff")
 
         values: dict[str, str] = {}
@@ -1665,7 +2193,7 @@ class EstimacionesApp(tk.Tk):
             tk.Label(body, text=label, bg="#f4f8ff", fg=TEXT_DARK, font=("Segoe UI", 8)).grid(
                 row=row, column=0, sticky="w", padx=(0, 8), pady=3
             )
-            entry = tk.Entry(body, width=32, font=("Segoe UI", 8), relief="solid", bd=1, bg=FIELD_BG)
+            entry = tk.Entry(body, width=52, font=("Segoe UI", 8), relief="solid", bd=1, bg=FIELD_BG)
             entry.insert(0, current)
             entry.grid(row=row, column=1, sticky="ew", pady=3)
             entries[key] = entry
@@ -1741,7 +2269,9 @@ class EstimacionesApp(tk.Tk):
         window = tk.Toplevel(self)
         window.title(title)
         window.transient(self)
-        window.resizable(False, False)
+        window.geometry("980x470")
+        window.minsize(900, 430)
+        window.resizable(True, True)
         window.configure(bg="#f4f8ff")
 
         values: dict[str, str] = {}
@@ -1765,7 +2295,7 @@ class EstimacionesApp(tk.Tk):
             tk.Label(body, text=label, bg="#f4f8ff", fg=TEXT_DARK, font=("Segoe UI", 8)).grid(
                 row=row, column=0, sticky="w", padx=(0, 8), pady=3
             )
-            entry = tk.Entry(body, width=32, font=("Segoe UI", 8), relief="solid", bd=1, bg=FIELD_BG)
+            entry = tk.Entry(body, width=52, font=("Segoe UI", 8), relief="solid", bd=1, bg=FIELD_BG)
             entry.insert(0, current)
             entry.grid(row=row, column=1, sticky="ew", pady=3)
             entries[key] = entry
@@ -1883,7 +2413,7 @@ class EstimacionesApp(tk.Tk):
                     body,
                     textvariable=action_var,
                     values=["Aumentar %", "Disminuir %"],
-                    width=30,
+                    width=40,
                     state="readonly",
                 )
                 combo.grid(row=row, column=1, sticky="ew", pady=3)
@@ -1891,7 +2421,7 @@ class EstimacionesApp(tk.Tk):
             else:
                 entry = tk.Entry(
                     body,
-                    width=32,
+                    width=46,
                     font=("Segoe UI", 8),
                     relief="solid",
                     bd=1,
@@ -1942,13 +2472,13 @@ class EstimacionesApp(tk.Tk):
 
         match_text = tk.Text(
             body,
-            width=52,
-            height=7,
+            width=90,
+            height=8,
             font=("Consolas", 8),
             relief="solid",
             bd=1,
             bg=READONLY_BG,
-            wrap="word",
+            wrap="none",
         )
         match_text.grid(row=desc_row + 3, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         match_text.configure(state="disabled")
@@ -2396,6 +2926,7 @@ class EstimacionesApp(tk.Tk):
             return
         self._set_loading_state(False)
         self.current_hierarchy_node = None
+        self.current_tree_context = None
         self._refresh_master_visuals(master)
         self._apply_flat_summary(component_breakdown, operations)
         self._populate_initial_panels(master, components, operations)
@@ -2411,6 +2942,7 @@ class EstimacionesApp(tk.Tk):
     def _fail_refresh(self, token: int, exc: Exception, silent: bool) -> None:
         if token != self._refresh_token:
             return
+        self.current_tree_context = None
         self._hide_progress_overlay()
         self._set_loading_state(False)
         self.status_var.set(f"No fue posible recalcular: {exc}")
@@ -2421,6 +2953,54 @@ class EstimacionesApp(tk.Tk):
         self._request_initial_load(silent=silent, user_message="Cargando estructura base...")
 
     def _show_hierarchy_report(self) -> None:
+        try:
+            parent_part = self.parent_part_var.get().strip()
+            route = self._current_route()
+            batch_qty = float(self._current_batch_qty())
+        except Exception as exc:
+            messagebox.showerror("JerarquÃ­a", str(exc))
+            return
+
+        cache_key = (parent_part, route, batch_qty, bool(self.maintain_hierarchies_var.get()))
+        cached_report = self._hierarchy_report_cache.get(cache_key)
+        if cached_report is not None:
+            self._open_hierarchy_report_window(cached_report)
+            self.status_var.set(f"Jerarquia lista para {parent_part}.")
+            return
+
+        self._hierarchy_report_token += 1
+        token = self._hierarchy_report_token
+        self._set_loading_state(True)
+        self._show_progress_overlay("Jerarquía", "Generando reporte jerárquico...")
+        self._update_progress_overlay(10, "Preparando reporte...")
+        self.status_var.set("Generando jerarquia...")
+
+        def worker() -> None:
+            try:
+                if self.maintain_hierarchies_var.get():
+                    self.after(0, lambda: self._update_progress_overlay(55, "Calculando árbol completo..."))
+                    report = format_tree_report(
+                        parent_part,
+                        report_type="What-if Costing Report",
+                        route=route,
+                        batch_qty=batch_qty,
+                    )
+                    report = self._clean_report_zeros(report)
+                else:
+                    self.after(0, lambda: self._update_progress_overlay(55, "Calculando reporte What-if..."))
+                    report = format_report(
+                        parent_part,
+                        report_type="What-if Costing Report",
+                        route=route,
+                        batch_qty=batch_qty,
+                    )
+                self.after(0, lambda: self._finish_hierarchy_report(token, cache_key, report))
+            except Exception as exc:
+                self.after(0, lambda: self._fail_hierarchy_report(token, exc))
+
+        Thread(target=worker, daemon=True).start()
+        return
+
         try:
             if self.maintain_hierarchies_var.get():
                 report = format_tree_report(
@@ -2443,7 +3023,11 @@ class EstimacionesApp(tk.Tk):
 
         window = tk.Toplevel(self)
         window.title(f"Jerarquía - {self.parent_part_var.get().strip()}")
-        window.geometry("1180x760")
+        window.geometry("1700x980")
+        try:
+            window.state("zoomed")
+        except tk.TclError:
+            pass
         header = tk.Frame(window, bg="#eef3fb", relief="solid", bd=1)
         header.pack(fill="x")
         ttk.Button(
@@ -2452,10 +3036,54 @@ class EstimacionesApp(tk.Tk):
             style="Slim.TButton",
             command=lambda text=report: self._print_text_report(text),
         ).pack(side="right", padx=8, pady=6)
-        viewer = scrolledtext.ScrolledText(window, wrap="none", font=("Consolas", 9))
+        viewer = scrolledtext.ScrolledText(window, wrap="none", font=("Consolas", 8))
         viewer.pack(fill="both", expand=True)
-        viewer.insert("1.0", report)
+        self._insert_report_text(viewer, report)
         viewer.configure(state="disabled")
+
+    def _open_hierarchy_report_window(self, report: str) -> None:
+        window = tk.Toplevel(self)
+        window.title(f"JerarquÃ­a - {self.parent_part_var.get().strip()}")
+        window.geometry("1700x980")
+        try:
+            window.state("zoomed")
+        except tk.TclError:
+            pass
+        header = tk.Frame(window, bg="#eef3fb", relief="solid", bd=1)
+        header.pack(fill="x")
+        ttk.Button(
+            header,
+            text="Imprimir",
+            style="Slim.TButton",
+            command=lambda text=report: self._print_text_report(text),
+        ).pack(side="right", padx=8, pady=6)
+        viewer = scrolledtext.ScrolledText(window, wrap="none", font=("Consolas", 8))
+        viewer.pack(fill="both", expand=True)
+        self._insert_report_text(viewer, report)
+        viewer.configure(state="disabled")
+
+    def _finish_hierarchy_report(
+        self,
+        token: int,
+        cache_key: tuple[str, str, float, bool],
+        report: str,
+    ) -> None:
+        if token != self._hierarchy_report_token:
+            return
+        self._hierarchy_report_cache[cache_key] = report
+        self._update_progress_overlay(100, "Jerarquía lista.")
+        self._set_loading_state(False)
+        self.after(150, self._hide_progress_overlay)
+        self._open_hierarchy_report_window(report)
+        self.status_var.set(f"Jerarquia lista para {cache_key[0]}.")
+
+    def _fail_hierarchy_report(self, token: int, exc: Exception) -> None:
+        if token != self._hierarchy_report_token:
+            return
+        self._hide_progress_overlay()
+        self._set_loading_state(False)
+        self.status_var.set(f"No fue posible generar la jerarquia: {exc}")
+        messagebox.showerror("JerarquÃ­a", str(exc))
 
     def _on_estimate(self, silent: bool = False) -> None:
         parent_part = self.parent_part_var.get().strip()
@@ -2522,6 +3150,7 @@ class EstimacionesApp(tk.Tk):
         self._update_progress_overlay(100, "Estimación completada.")
         self._set_loading_state(False)
         self.current_hierarchy_node = node
+        self.current_tree_context = self._current_tree_context_key()
         self._refresh_master_visuals(master)
         self._apply_flat_summary(component_breakdown, operations)
         self._reset_scenario(components, operations)

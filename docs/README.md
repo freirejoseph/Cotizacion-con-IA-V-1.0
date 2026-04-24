@@ -28,6 +28,8 @@ No se debe duplicar documentacion equivalente en otros directorios del repositor
 - [10. Estimaciones v1.1 - Definicion funcional](10_estimaciones_v1_1_definicion_funcional.md)
 - [11. Acuerdos operativos de colaboracion](11_acuerdos_operativos_colaboracion.md)
 - [12. Empaquetado de Estimaciones a EXE](12_empaquetado_estimaciones_exe.md)
+- [13. Transportabilidad a nueva maquina con VS Code](13_transportabilidad_nueva_maquina_vscode.md)
+- [14. Factor Mass universal y propagacion de lotes](14_factor_mass_universal_y_propagacion_de_lotes.md)
 
 ## Ruta recomendada de lectura
 
@@ -57,6 +59,10 @@ Para adquirir el conocimiento del proyecto en secuencia, leer estos documentos e
    Registra decisiones de trabajo del proyecto para que no dependan de un chat previo.
 12. [12. Empaquetado de Estimaciones a EXE](12_empaquetado_estimaciones_exe.md)
    Explica como generar y entregar `Estimaciones.exe` sin depender de Visual Studio Code.
+13. [13. Transportabilidad a nueva maquina con VS Code](13_transportabilidad_nueva_maquina_vscode.md)
+   Resume los pasos para trasladar el proyecto a otra PC y dejarla lista en VS Code.
+14. [14. Factor Mass universal y propagacion de lotes](14_factor_mass_universal_y_propagacion_de_lotes.md)
+   Formaliza la regla de equivalencia de `Mass` y la propagacion de lotes entre nodos.
 
 Si el objetivo es continuar codigo, despues de esta ruta conviene pasar a:
 
